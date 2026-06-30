@@ -1,0 +1,68 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# go-server-monitor — Caddy reverse proxy + automatic HTTPS (P0 skeleton template).
+#
+# Authority: requirements/10-deployment-ops.md (REQ-OPS-03),
+#            requirements/12-build-plan.md (P8 REQ-DEPLOY-04).
+#
+# Responsibilities:
+#   - Terminate TLS (automatic Let's Encrypt when DOMAIN is a real hostname;
+#     a local self-signed cert when DOMAIN=localhost).
+#   - Reverse-proxy the dynamic backend routes to the Go app:
+#       /report      (probe upload)
+#       /api/*       (public + admin REST API)
+#       /ws          (WebSocket upgrade — frozen path, REQ-RES-00)
+#       /health      (health check)
+#   - Serve the Vue 3 SPA static build with history-mode fallback to /index.html.
+#
+# Upstream is `app:8080` (the Compose service name). When running Caddy OUTSIDE
+# compose (e.g. host Caddy in front of a host-run binary), change the upstream
+# to `localhost:8080` in the reverse_proxy lines below.
+#
+# NOTE(P8): once the SPA is embedded into the Go binary via //go:embed
+# (REQ-DEPLOY-03), Caddy can drop the file_server block and simply
+# reverse_proxy everything to app:8080. Until then Caddy serves /srv.
+# ─────────────────────────────────────────────────────────────────────────────
+
+{
+	# Structured access/error logs to stdout for container log aggregation.
+	log {
+		output stdout
+		format json
+	}
+	# auto_https is on by default. For a public deploy set DOMAIN to your
+	# real hostname (docker-compose passes it in as an env var) and Caddy will
+	# obtain + renew a Let's Encrypt certificate automatically.
+}
+
+# Site address. {$DOMAIN:localhost} → uses $DOMAIN env, defaults to localhost.
+# TODO(P8): set DOMAIN=your.domain in .env / compose to enable public HTTPS.
+{$DOMAIN:localhost} {
+
+	# ── Dynamic backend: probe upload, REST API, WebSocket, health ──────────
+	# Upstream `app:8080` is the Compose service. Outside compose use
+	# `localhost:8080` instead.
+	@backend {
+		path /report /api/* /ws /health
+	}
+	reverse_proxy @backend app:8080 {
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+		# coder/websocket upgrade on /ws is handled transparently by Caddy.
+		# Long-lived WS connections: bump read/write timeouts.
+		transport http {
+			read_timeout 120s
+			write_timeout 120s
+		}
+	}
+
+	# ── Static SPA: serve the built Vue dist with history-mode fallback ─────
+	# In the container the SPA is copied to /app/web/dist by the Dockerfile,
+	# but Caddy's own image mounts it at /srv by convention. Adjust `root`
+	# to wherever dist is mounted for your deployment.
+	root * /srv
+	encode gzip zstd
+	# SPA history-mode: try the real file, else fall back to index.html.
+	try_files {path} /index.html
+	file_server
+}

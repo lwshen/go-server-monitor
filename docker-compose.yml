@@ -1,0 +1,99 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# go-server-monitor — local / single-host orchestration (P0 skeleton template).
+#
+# Authority: requirements/10-deployment-ops.md (REQ-OPS-02),
+#            requirements/01-architecture.md (REQ-ARCH-07 deploy topology),
+#            requirements/12-build-plan.md (P0 deliverable 6, P8 REQ-DEPLOY-06).
+#
+# Topology:
+#   app   — Go single process (HTTP + WebSocket Hub + embedded SQLite), :8080.
+#   caddy — reverse proxy + automatic HTTPS, terminates 80/443, proxies to app.
+#
+# No top-level `version:` key (obsolete in Compose v2).
+#
+# Secrets come from the environment (or a sibling .env, auto-loaded by Compose).
+# Copy .env.example -> .env and fill in API_SECRET / ADMIN_PASSWORD before `up`.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  app:
+    build:
+      context: .
+      args:
+        VERSION: ${VERSION:-dev}
+    container_name: go-server-monitor
+    restart: always
+
+    environment:
+      # Bootstrap secrets — see .env.example / REQ-RES-01.
+      # On first start these seed the settings table; thereafter the DB is
+      # authoritative for password hash / jwt secret (REQ-RES-01/05).
+      API_SECRET: ${API_SECRET:?API_SECRET is required}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
+      JWT_SECRET: ${JWT_SECRET:-}
+      DB_PATH: /data/metrics.db
+      LISTEN_ADDR: ":8080"
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      REPORT_RETENTION_DAYS: ${REPORT_RETENTION_DAYS:-180}
+      TZ: ${TZ:-UTC}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Constrain the Go heap on small VPS (REQ-OPS-06). TODO(P8): tune.
+      GOMEMLIMIT: ${GOMEMLIMIT:-200MiB}
+
+    volumes:
+      # SQLite database + WAL/SHM persist across restarts.
+      - ./data:/data
+
+    # The frozen public health endpoint is /health (REQ-RES-00).
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+    # Not published to the host directly — Caddy fronts it. Uncomment to expose
+    # the app directly (e.g. local dev without Caddy).
+    # ports:
+    #   - "8080:8080"
+    expose:
+      - "8080"
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: go-server-monitor-caddy
+    restart: always
+    depends_on:
+      - app
+
+    ports:
+      - "80:80"
+      - "443:443"
+
+    environment:
+      # Set DOMAIN=your.domain to enable automatic HTTPS via Let's Encrypt.
+      # Defaults to localhost (Caddy issues a local self-signed cert).
+      DOMAIN: ${DOMAIN:-localhost}
+
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Persist issued TLS certs / ACME account across restarts.
+      - caddy_data:/data
+      - caddy_config:/config
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  caddy_data:
+  caddy_config:

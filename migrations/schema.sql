@@ -1,0 +1,132 @@
+-- P1 draft schema
+-- =============================================================================
+-- SQLite schema for go-server-monitor.
+--
+-- Authority: CONVENTIONS.md > 14-resolved-decisions.md (frozen) > chapter 02.
+-- This file is the documentation + draft consumed by the P1 db package; the P0
+-- skeleton does NOT execute it.
+--
+-- Frozen facts reflected here:
+--   * timestamp is Unix SECONDS (CONVENTIONS.md §1), not milliseconds.
+--   * memory/swap/disk aggregate = MiB; net cumulative = bytes; net speed = B/s.
+--   * unmeasured ping_*/loss_* arrive as -1 on the wire and are stored as NULL.
+--   * disks[] detail is stored as metrics_history.disks_json TEXT (REQ-RES-02),
+--     NOT as a relational disk_info table.
+--   * gpu / gpu_info are nullable (REQ-RES-07).
+-- =============================================================================
+
+-- ── servers: server configuration / display metadata (REQ-DB-02) ─────────────
+CREATE TABLE IF NOT EXISTS servers (
+  id                  TEXT PRIMARY KEY,           -- UUID v4
+  name                TEXT NOT NULL,              -- display name
+  server_group        TEXT DEFAULT 'Default',     -- grouping label
+  price               TEXT DEFAULT '',            -- free-text monthly price
+  expire_date         TEXT DEFAULT '',            -- YYYY-MM-DD, '' = perpetual
+  bandwidth           TEXT DEFAULT '',            -- free-text bandwidth tier
+  traffic_limit       TEXT DEFAULT '',            -- free-text monthly cap
+  traffic_calc_type   TEXT DEFAULT 'total',       -- total/up/down/max
+  reset_day           INTEGER DEFAULT 1,          -- monthly reset day (1-31)
+  collect_interval    INTEGER DEFAULT 0,          -- desired sample interval (s); 0 = none
+  report_interval     INTEGER DEFAULT 60,         -- desired report interval (s)
+  ping_mode           TEXT DEFAULT 'http',        -- http/tcp
+  is_hidden           TEXT DEFAULT '0',           -- '0' visible / '1' hidden
+  sort_order          INTEGER DEFAULT 0,          -- ascending sort weight
+
+  -- offline-detection / expiration-reminder state (P7)
+  last_online_state   INTEGER DEFAULT 1,          -- 1 online / 0 offline
+  last_state_change   INTEGER DEFAULT 0,          -- Unix seconds of last transition
+  expiration_notified INTEGER DEFAULT 0,          -- 0/1
+
+  created_at          TEXT DEFAULT (datetime('now')),
+  updated_at          TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_servers_group  ON servers(server_group);
+CREATE INDEX IF NOT EXISTS idx_servers_expire ON servers(expire_date);
+
+-- ── metrics_history: every reported sample (REQ-DB-03 / REQ-RES-02) ──────────
+CREATE TABLE IF NOT EXISTS metrics_history (
+  id                INTEGER PRIMARY KEY,          -- implicit rowid, no AUTOINCREMENT
+  server_id         TEXT NOT NULL,                -- FK -> servers.id
+  timestamp         INTEGER NOT NULL,             -- Unix SECONDS
+
+  -- resource / summary
+  cpu               REAL    DEFAULT 0,            -- %
+  load_avg          TEXT    DEFAULT '0 0 0',      -- "l1 l5 l15"
+  processes         INTEGER DEFAULT 0,
+  tcp_conn          INTEGER DEFAULT 0,
+  udp_conn          INTEGER DEFAULT 0,
+  thread            INTEGER DEFAULT 0,
+  cpu_cores         INTEGER DEFAULT 0,
+  cpu_info          TEXT    DEFAULT '',
+  cpu_model         TEXT    DEFAULT '',
+
+  -- memory / swap (MiB)
+  memory_total      REAL    DEFAULT 0,
+  memory_used       REAL    DEFAULT 0,
+  swap_total        REAL    DEFAULT 0,
+  swap_used         REAL    DEFAULT 0,
+
+  -- disk aggregate (MiB)
+  hdd_total         REAL    DEFAULT 0,
+  hdd_used          REAL    DEFAULT 0,
+
+  -- network (bytes / B/s)
+  network_rx        REAL    DEFAULT 0,            -- instantaneous downlink B/s
+  network_tx        REAL    DEFAULT 0,            -- instantaneous uplink B/s
+  network_in        REAL    DEFAULT 0,            -- cumulative inbound bytes
+  network_out       REAL    DEFAULT 0,            -- cumulative outbound bytes
+  last_network_in   REAL    DEFAULT 0,            -- period inbound bytes
+  last_network_out  REAL    DEFAULT 0,            -- period outbound bytes
+
+  -- network quality (-1 wire -> NULL here)
+  ping_ct           INTEGER DEFAULT NULL,         -- ms
+  ping_cu           INTEGER DEFAULT NULL,
+  ping_cm           INTEGER DEFAULT NULL,
+  ping_bd           INTEGER DEFAULT NULL,
+  loss_ct           REAL    DEFAULT NULL,         -- %
+  loss_cu           REAL    DEFAULT NULL,
+  loss_cm           REAL    DEFAULT NULL,
+  loss_bd           REAL    DEFAULT NULL,
+
+  -- IP reachability
+  online4           INTEGER DEFAULT 0,            -- 0/1
+  online6           INTEGER DEFAULT 0,            -- 0/1
+
+  -- system info
+  os                TEXT    DEFAULT '',
+  os_release        TEXT    DEFAULT '',
+  kernel_version    TEXT    DEFAULT '',
+  arch              TEXT    DEFAULT '',
+  os_family         TEXT    DEFAULT '',
+  uptime            INTEGER DEFAULT 0,            -- seconds
+  host_name         TEXT    DEFAULT '',
+
+  -- GPU (nullable, REQ-RES-07)
+  gpu               REAL    DEFAULT NULL,         -- %
+  gpu_info          TEXT    DEFAULT NULL,
+
+  -- geo / grouping
+  region            TEXT    DEFAULT '',           -- server-injected ISO country code
+  gid               TEXT    DEFAULT '',
+  location          TEXT    DEFAULT '',
+
+  -- metadata
+  vnstat            INTEGER DEFAULT 0,            -- 0/1
+  custom            TEXT    DEFAULT '',
+
+  -- disk detail as JSON array string (REQ-RES-02)
+  disks_json        TEXT    DEFAULT '[]',
+
+  FOREIGN KEY (server_id) REFERENCES servers(id) ON DELETE CASCADE
+);
+
+-- Required indexes (manifest / REQ-DB-04)
+CREATE INDEX IF NOT EXISTS idx_history_server_time ON metrics_history(server_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_history_timestamp   ON metrics_history(timestamp);
+
+-- ── settings: global key/value config (REQ-DB-05 / REQ-RES-01) ───────────────
+CREATE TABLE IF NOT EXISTS settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT
+);
