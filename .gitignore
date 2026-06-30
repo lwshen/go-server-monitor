@@ -1,0 +1,73 @@
+# ───────────────────────────────────────────────
+# go-server-monitor .gitignore
+# ───────────────────────────────────────────────
+requirements/
+
+# ── 密钥 / 环境变量（务必忽略，切勿提交）──
+.env
+.env.*
+!.env.example
+
+# ── Go 编译产物 / 二进制 ──
+/server-monitor
+/go-server-monitor
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/bin/
+/build/
+# 测试与覆盖率
+*.test
+*.out
+coverage.txt
+coverage.html
+profile.out
+# Go workspace（本地）
+go.work
+go.work.sum
+
+# ── SQLite 运行时数据库（数据，勿入库）──
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+/data/
+
+# ── 前端 (Vue 3 + Vite) ──
+node_modules/
+web/node_modules/
+web/dist/
+dist/
+.vite/
+*.local
+
+# ── 运维 / 部署 ──
+# Caddy 本地证书与状态
+caddy_data/
+caddy_config/
+# 备份与归档
+backups/
+*.bak
+*.backup
+*.tar.gz
+*.zip
+
+# ── 日志 ──
+*.log
+logs/
+
+# ── IDE / 编辑器 ──
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── 操作系统 ──
+.DS_Store
+.AppleDouble
+Thumbs.db
+desktop.ini
