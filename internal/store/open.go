@@ -94,13 +94,26 @@ func Open(ctx context.Context, cfg *config.Config, log *zap.Logger) (Store, erro
 }
 
 // verify pings the freshly-opened store, closing it on failure so we never leak
-// a half-open handle.
+// a half-open handle. For the SQLite family it also logs the effective PRAGMAs so
+// the operator can confirm WAL/busy_timeout actually took (they are applied
+// per-connection via the DSN; PostgreSQL has no equivalent and is skipped).
 func verify(ctx context.Context, st *bunStore) (Store, error) {
 	if err := st.Ping(ctx); err != nil {
 		_ = st.Close()
 		return nil, fmt.Errorf("%s ping: %w", st.backend, err)
 	}
-	st.log.Info("数据库已连接", zap.String("backend", string(st.backend)))
+
+	fields := []zap.Field{zap.String("backend", string(st.backend))}
+	if st.backend == backendSQLite || st.backend == backendLibSQL {
+		var journalMode string
+		var busyTimeout int
+		_ = st.db.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&journalMode)
+		_ = st.db.QueryRowContext(ctx, "PRAGMA busy_timeout").Scan(&busyTimeout)
+		fields = append(fields,
+			zap.String("journal_mode", journalMode),
+			zap.Int("busy_timeout_ms", busyTimeout))
+	}
+	st.log.Info("数据库已连接", fields...)
 	return st, nil
 }
 

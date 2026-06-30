@@ -3,7 +3,9 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/uptrace/bun"
@@ -13,6 +15,9 @@ import (
 	"github.com/lwshen/go-server-monitor/internal/models"
 	"github.com/lwshen/go-server-monitor/pkg/apperr"
 )
+
+// schemaVersionKey is the settings row that tracks the applied migration version.
+const schemaVersionKey = "schema_version"
 
 // bunStore is the Bun-backed Store implementation shared by every SQL backend.
 // The dialect (passed in by Open) is the only thing that differs between SQLite,
@@ -48,48 +53,69 @@ func (s *bunStore) Ping(ctx context.Context) error { return s.db.PingContext(ctx
 
 func (s *bunStore) Close() error { return s.db.Close() }
 
-// Migrate creates the tables and indexes if they do not already exist. Bun emits
-// dialect-correct DDL from the models in schema.go, so this one method works for
-// SQLite, libSQL and PostgreSQL alike.
-//
-// TODO(P1): evolve into versioned, additive-only migrations keyed on
-// settings.schema_version (REQ-RES-09); for now it is create-if-not-exists.
+// Migrate brings the schema up to latestSchemaVersion by applying every pending
+// migration in order (REQ-RES-09). It is safe to call on every boot: already-
+// applied migrations are skipped, and the migrations themselves use IF NOT
+// EXISTS, so a re-run is a no-op. Bun emits dialect-correct DDL, so this one path
+// works for SQLite, libSQL and PostgreSQL alike.
 func (s *bunStore) Migrate(ctx context.Context) error {
 	start := time.Now()
 
-	for _, model := range tableModels() {
-		if _, err := s.db.NewCreateTable().Model(model).IfNotExists().Exec(ctx); err != nil {
-			return fmt.Errorf("create table (%s): %w", s.backend, err)
-		}
+	// The settings table tracks the schema version, so it must exist first
+	// (chicken/egg: it is not part of a numbered migration).
+	if _, err := s.db.NewCreateTable().Model((*settingRow)(nil)).IfNotExists().Exec(ctx); err != nil {
+		return fmt.Errorf("ensure settings table (%s): %w", s.backend, err)
 	}
 
-	indexes := []struct {
-		name string
-		cols []string
-	}{
-		{"idx_history_server_time", []string{"server_id", "timestamp"}},
-		{"idx_history_timestamp", []string{"timestamp"}},
-	}
-	for _, idx := range indexes {
-		if _, err := s.db.NewCreateIndex().
-			Model((*metricRow)(nil)).
-			Index(idx.name).
-			Column(idx.cols...).
-			IfNotExists().
-			Exec(ctx); err != nil {
-			return fmt.Errorf("create index %s (%s): %w", idx.name, s.backend, err)
-		}
+	current, err := s.currentSchemaVersion(ctx)
+	if err != nil {
+		return fmt.Errorf("read schema version: %w", err)
 	}
 
-	// Record the schema version so P1 versioned migrations have a baseline.
-	if err := s.SetSetting(ctx, "schema_version", fmt.Sprintf("%d", schemaVersion)); err != nil {
-		return fmt.Errorf("write schema_version: %w", err)
+	applied := 0
+	for _, m := range schemaMigrations() {
+		if m.version <= current {
+			continue
+		}
+		if err := m.up(ctx, s.db); err != nil {
+			return fmt.Errorf("migration %d (%s) on %s: %w", m.version, m.name, s.backend, err)
+		}
+		if err := s.SetSetting(ctx, schemaVersionKey, strconv.Itoa(m.version)); err != nil {
+			return fmt.Errorf("record schema version %d: %w", m.version, err)
+		}
+		current = m.version
+		applied++
+		s.log.Info("已应用数据库迁移", zap.Int("version", m.version), zap.String("name", m.name))
 	}
 
 	s.log.Info("数据库迁移完成",
 		zap.String("backend", string(s.backend)),
+		zap.Int("schema_version", current),
+		zap.Int("applied", applied),
 		zap.Duration("took", time.Since(start)))
 	return nil
+}
+
+// currentSchemaVersion reads settings.schema_version, returning 0 when it has
+// never been set (a fresh database).
+func (s *bunStore) currentSchemaVersion(ctx context.Context) (int, error) {
+	var raw string
+	err := s.db.NewSelect().
+		Model((*settingRow)(nil)).
+		Column("value").
+		Where("key = ?", schemaVersionKey).
+		Scan(ctx, &raw)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return 0, nil
+	case err != nil:
+		return 0, err
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("invalid schema_version %q: %w", raw, err)
+	}
+	return n, nil
 }
 
 // ── ingest (P2) ────────────────────────────────────────────────────────────
@@ -158,14 +184,32 @@ func (s *bunStore) SetSetting(ctx context.Context, key, value string) error {
 	return err
 }
 
+// GetSetting returns the value for key, or ("", nil) when the key is absent.
 func (s *bunStore) GetSetting(ctx context.Context, key string) (string, error) {
-	s.log.Warn("store.GetSetting not implemented (P6)")
-	return "", apperr.ErrNotImplemented
+	var value string
+	err := s.db.NewSelect().
+		Model((*settingRow)(nil)).
+		Column("value").
+		Where("key = ?", key).
+		Scan(ctx, &value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return value, err
 }
 
+// AllSettings returns every key/value pair. (Callers redact secret-class keys
+// before returning them over the admin API — REQ-RES-01.)
 func (s *bunStore) AllSettings(ctx context.Context) (map[string]string, error) {
-	s.log.Warn("store.AllSettings not implemented (P6)")
-	return nil, apperr.ErrNotImplemented
+	var rows []settingRow
+	if err := s.db.NewSelect().Model(&rows).Scan(ctx); err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(rows))
+	for _, r := range rows {
+		out[r.Key] = r.Value
+	}
+	return out, nil
 }
 
 // ── maintenance (P7/P9) ──────────────────────────────────────────────────────

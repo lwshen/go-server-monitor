@@ -41,6 +41,10 @@ CREATE TABLE IF NOT EXISTS servers (
   last_state_change   INTEGER DEFAULT 0,          -- Unix seconds of last transition
   expiration_notified INTEGER DEFAULT 0,          -- 0/1
 
+  -- latest structured snapshots, refreshed on report (REQ-RES-06; ip_info has lat/lon for the map)
+  sys_info_json       TEXT DEFAULT '',
+  ip_info_json        TEXT DEFAULT '',
+
   created_at          TEXT DEFAULT (datetime('now')),
   updated_at          TEXT DEFAULT (datetime('now'))
 );
@@ -50,7 +54,7 @@ CREATE INDEX IF NOT EXISTS idx_servers_expire ON servers(expire_date);
 
 -- ── metrics_history: every reported sample (REQ-DB-03 / REQ-RES-02) ──────────
 CREATE TABLE IF NOT EXISTS metrics_history (
-  id                INTEGER PRIMARY KEY,          -- implicit rowid, no AUTOINCREMENT
+  id                INTEGER PRIMARY KEY AUTOINCREMENT, -- Bun emits AUTOINCREMENT (SQLite) / BIGSERIAL (Postgres)
   server_id         TEXT NOT NULL,                -- FK -> servers.id
   timestamp         INTEGER NOT NULL,             -- Unix SECONDS
 
