@@ -23,12 +23,20 @@ server:
   domain: "localhost"
 
 db:
-  # SQLite file path. Created on first start if absent.
+  # Backend selected by URL scheme (internal/store, docs/database.md):
+  #   sqlite:./data/metrics.db  -> embedded SQLite (modernc, no cgo)
+  #   libsql://<db>.turso.io    -> Turso / libSQL (remote; auth_token below or in URL)
+  #   postgres://...            -> PostgreSQL (extension point; needs pgx build)
+  # Empty url => fall back to the SQLite file at `path`.
+  url: ""
+  auth_token: ""            # Turso/libSQL token if not embedded in url
+  # SQLite file path. Used only when url is empty. Created on first start if absent.
   path: "./data/metrics.db"
   # History retention in days; nightly cron deletes older samples (REQ-RES-08).
   retention_days: 180
 
 # SQLite PRAGMA tuning baseline (CONVENTIONS §8, REQ-ARCH-03, REQ-DB-01).
+# Applied only to the embedded SQLite / libSQL backends.
 sqlite:
   journal_mode: "WAL"      # read/write concurrency
   synchronous: "NORMAL"    # balance durability vs throughput

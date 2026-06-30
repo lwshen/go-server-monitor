@@ -1,22 +1,21 @@
 package api
 
 import (
-	"database/sql"
-
 	"github.com/gin-gonic/gin"
 
 	"github.com/lwshen/go-server-monitor/internal/config"
 	"github.com/lwshen/go-server-monitor/internal/middleware"
+	"github.com/lwshen/go-server-monitor/internal/store"
 	"github.com/lwshen/go-server-monitor/internal/ws"
 	"go.uber.org/zap"
 )
 
 // Deps is the set of dependencies the HTTP handlers need.
 type Deps struct {
-	Cfg *config.Config
-	DB  *sql.DB
-	Hub *ws.Hub
-	Log *zap.Logger
+	Cfg   *config.Config
+	Store store.Store
+	Hub   *ws.Hub
+	Log   *zap.Logger
 }
 
 // Handlers carries Deps onto the handler methods (one method per endpoint).

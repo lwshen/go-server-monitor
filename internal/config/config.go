@@ -16,10 +16,19 @@ import (
 // the environment on first start and then persisted to the settings table
 // (REQ-RES-01). For the skeleton they are simply surfaced here.
 type Config struct {
-	APISecret           string // API_SECRET — probe upload shared secret ("" disables /report)
-	AdminPassword       string // ADMIN_PASSWORD — plaintext bootstrap password, bcrypt-hashed on first start
-	JWTSecret           string // JWT_SECRET — JWT signing key (derived from ADMIN_PASSWORD if empty)
-	DBPath              string // DB_PATH — SQLite file path
+	APISecret     string // API_SECRET — probe upload shared secret ("" disables /report)
+	AdminPassword string // ADMIN_PASSWORD — plaintext bootstrap password, bcrypt-hashed on first start
+	JWTSecret     string // JWT_SECRET — JWT signing key (derived from ADMIN_PASSWORD if empty)
+
+	// DatabaseURL selects the backend by scheme (store.Open):
+	//   sqlite:./data/metrics.db | file:./data/metrics.db   -> embedded SQLite
+	//   libsql://<db>.turso.io | https://<db>.turso.io       -> Turso/libSQL (remote)
+	//   postgres://user:pass@host:5432/db                    -> PostgreSQL (extension point)
+	// When empty, DBPath is used as an embedded SQLite file (back-compat default).
+	DatabaseURL       string // DATABASE_URL
+	DatabaseAuthToken string // DATABASE_AUTH_TOKEN — Turso/libSQL auth token (if not in the URL)
+	DBPath            string // DB_PATH — SQLite file path, used only when DATABASE_URL is empty
+
 	ListenAddr          string // LISTEN_ADDR — HTTP listen address
 	CORSOrigins         string // CORS_ORIGINS — comma-separated allowed origins ("" = same-origin)
 	ReportRetentionDays int    // REPORT_RETENTION_DAYS — history retention window
@@ -35,6 +44,8 @@ func Load() (*Config, error) {
 		APISecret:           env("API_SECRET", ""),
 		AdminPassword:       env("ADMIN_PASSWORD", ""),
 		JWTSecret:           env("JWT_SECRET", ""),
+		DatabaseURL:         env("DATABASE_URL", ""),
+		DatabaseAuthToken:   env("DATABASE_AUTH_TOKEN", ""),
 		DBPath:              env("DB_PATH", "./data/metrics.db"),
 		ListenAddr:          env("LISTEN_ADDR", ":8080"),
 		CORSOrigins:         env("CORS_ORIGINS", ""),

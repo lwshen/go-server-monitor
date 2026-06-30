@@ -1,9 +1,10 @@
 package service
 
 import (
-	"database/sql"
+	"context"
 
 	"github.com/lwshen/go-server-monitor/internal/models"
+	"github.com/lwshen/go-server-monitor/internal/store"
 	"github.com/lwshen/go-server-monitor/internal/ws"
 	"github.com/lwshen/go-server-monitor/pkg/apperr"
 	"go.uber.org/zap"
@@ -19,7 +20,7 @@ import (
 // disks_json (REQ-RES-02); map -1 sentinels to NULL.
 // TODO(P4): after a successful write, build a BroadcastData with static fields
 // removed (models.BroadcastDeleteFields, REQ-RES-06) and call hub.Broadcast.
-func SaveMetrics(db *sql.DB, hub *ws.Hub, report *models.StatReport, log *zap.Logger) error {
+func SaveMetrics(ctx context.Context, st store.Store, hub *ws.Hub, report *models.StatReport, log *zap.Logger) error {
 	log.Warn("service.SaveMetrics not implemented (P2)")
 	return apperr.ErrNotImplemented
 }

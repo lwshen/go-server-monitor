@@ -3,18 +3,17 @@
 package cron
 
 import (
-	"database/sql"
-
 	"github.com/robfig/cron/v3"
 
 	"github.com/lwshen/go-server-monitor/internal/config"
 	"github.com/lwshen/go-server-monitor/internal/service"
+	"github.com/lwshen/go-server-monitor/internal/store"
 	"go.uber.org/zap"
 )
 
 // Deps bundles what the cron jobs need to run.
 type Deps struct {
-	DB       *sql.DB
+	Store    store.Store
 	Cfg      *config.Config
 	Notifier *service.Notifier
 	Log      *zap.Logger

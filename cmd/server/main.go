@@ -19,8 +19,8 @@ import (
 	"github.com/lwshen/go-server-monitor/internal/api"
 	"github.com/lwshen/go-server-monitor/internal/config"
 	"github.com/lwshen/go-server-monitor/internal/cron"
-	"github.com/lwshen/go-server-monitor/internal/db"
 	"github.com/lwshen/go-server-monitor/internal/service"
+	"github.com/lwshen/go-server-monitor/internal/store"
 	"github.com/lwshen/go-server-monitor/internal/ws"
 	"github.com/lwshen/go-server-monitor/pkg/logger"
 )
@@ -40,12 +40,16 @@ func main() {
 	log := logger.Init(cfg.LogLevel)
 	defer func() { _ = log.Sync() }()
 
-	// 4. Initialize the database (P0 stub returns nil, nil).
-	database, err := db.InitDB(cfg, log)
+	// 4. Open the data store (SQLite / Turso / PostgreSQL behind one interface)
+	//    and bring the schema up to date.
+	st, err := store.Open(context.Background(), cfg, log)
 	if err != nil {
 		log.Fatal("数据库初始化失败", zap.Error(err))
 	}
-	defer func() { _ = db.Close(database) }()
+	defer func() { _ = st.Close() }()
+	if err := st.Migrate(context.Background()); err != nil {
+		log.Fatal("数据库迁移失败", zap.Error(err))
+	}
 
 	// 5. Start the WebSocket hub.
 	hub := ws.NewHub(log)
@@ -54,7 +58,7 @@ func main() {
 	// 6. Start cron jobs.
 	notifier := service.NewNotifier("", "", "", log)
 	cronScheduler, err := cron.Start(cron.Deps{
-		DB:       database,
+		Store:    st,
 		Cfg:      cfg,
 		Notifier: notifier,
 		Log:      log,
@@ -65,10 +69,10 @@ func main() {
 
 	// 7. Build the HTTP router.
 	router := api.NewRouter(api.Deps{
-		Cfg: cfg,
-		DB:  database,
-		Hub: hub,
-		Log: log,
+		Cfg:   cfg,
+		Store: st,
+		Hub:   hub,
+		Log:   log,
 	})
 
 	// 8. Start the HTTP server in a goroutine.

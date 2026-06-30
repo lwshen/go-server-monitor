@@ -17,7 +17,10 @@ default), and broadcasts live updates to the dashboard. It runs comfortably on a
 ## Tech stack
 
 - **Backend**: Go 1.24 (single static binary, `CGO_ENABLED=0`)
-- **Storage**: SQLite via `modernc.org/sqlite` (pure Go, WAL mode)
+- **Storage**: pluggable via the `store.Store` interface + [Bun](https://bun.uptrace.dev/) —
+  SQLite (`modernc.org/sqlite`, embedded) and Turso/libSQL (remote) built in,
+  PostgreSQL a drop-in extension point. Selected by `DATABASE_URL`. See
+  [docs/database.md](docs/database.md).
 - **Realtime**: `coder/websocket` + in-process goroutine broadcast Hub
 - **Scheduling**: `robfig/cron` (offline detection, retention cleanup, reminders)
 - **Auth**: bcrypt password hashing + JWT (HS256, 7-day) for admin; constant-time
