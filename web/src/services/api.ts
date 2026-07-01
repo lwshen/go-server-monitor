@@ -1,67 +1,146 @@
-import axios from 'axios'
-import type { AxiosInstance } from 'axios'
+// Typed axios client for the backend. baseURL is relative by default so the
+// Vite dev proxy (and same-origin prod) forwards /api to the Go server.
 
-// Axios instance. baseURL from VITE_API_BASE_URL (default http://localhost:8080).
-// TODO(P5): request/response interceptors (attach JWT, handle 401 -> login),
-// error normalization to the {error,code} contract.
-const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080'
+import axios, { type AxiosInstance } from 'axios'
+import type {
+  AppConfig,
+  HistoryRange,
+  HistoryResponse,
+  LoginResponse,
+  Server,
+  ServersResponse,
+} from '@/types'
 
-export const apiClient: AxiosInstance = axios.create({
-  baseURL,
+// Re-export the core domain types so views can import them from either
+// '@/types' (canonical) or '@/services/api' (convenience).
+export type {
+  AppConfig,
+  HistoryPoint,
+  HistoryRange,
+  HistoryResponse,
+  IpInfo,
+  LoginResponse,
+  MetricsRow,
+  Server,
+  ServersResponse,
+  Stats,
+  SysInfo,
+  WsFrame,
+} from '@/types'
+
+export const TOKEN_KEY = 'token'
+
+export function getToken(): string | null {
+  return localStorage.getItem(TOKEN_KEY)
+}
+
+export function setToken(token: string): void {
+  localStorage.setItem(TOKEN_KEY, token)
+}
+
+export function clearToken(): void {
+  localStorage.removeItem(TOKEN_KEY)
+}
+
+const http: AxiosInstance = axios.create({
+  baseURL: import.meta.env.VITE_API_BASE_URL ?? '',
   headers: { 'Content-Type': 'application/json' },
 })
 
-// ---- Light placeholder types (refined in P5 against report-types.ts) ----
+// Attach the bearer token when present.
+http.interceptors.request.use((config) => {
+  const token = getToken()
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
 
-/** Public runtime config from GET /api/config. */
-export interface AppConfig {
-  [key: string]: unknown
+// On 401, drop the token and let stores/guards react (no hard redirect).
+http.interceptors.response.use(
+  (res) => res,
+  (error) => {
+    if (error?.response?.status === 401) {
+      clearToken()
+    }
+    return Promise.reject(error)
+  },
+)
+
+export { http }
+
+// ---- Public endpoints -----------------------------------------------------
+
+export async function getConfig(): Promise<AppConfig> {
+  const { data } = await http.get<AppConfig>('/api/config')
+  return data
 }
 
-/** A server entry with its latest metrics. Fields TBD in P5. */
-export interface Server {
-  id: string
+export async function getServers(): Promise<ServersResponse> {
+  const { data } = await http.get<ServersResponse>('/api/servers')
+  return data
+}
+
+export async function getServer(id: string): Promise<Server> {
+  const { data } = await http.get<Server>('/api/server', { params: { id } })
+  return data
+}
+
+export async function getHistory(id: string, range: HistoryRange): Promise<HistoryResponse> {
+  const { data } = await http.get<HistoryResponse>('/api/history', { params: { id, range } })
+  return data
+}
+
+// ---- Admin endpoints (JWT) ------------------------------------------------
+
+export async function login(username: string, password: string): Promise<LoginResponse> {
+  const { data } = await http.post<LoginResponse>('/api/admin/login', { username, password })
+  return data
+}
+
+export async function adminListServers(): Promise<Server[]> {
+  const { data } = await http.post<{ servers: Server[] }>('/api/admin/servers')
+  return data.servers
+}
+
+export interface AddServerBody {
   name: string
+  server_group?: string
+  expire_date?: string
   [key: string]: unknown
 }
 
-/** One downsampled history sample. Fields TBD in P5. */
-export interface HistoryPoint {
-  timestamp: number
+export async function addServer(body: AddServerBody): Promise<Server> {
+  const { data } = await http.post<Server>('/api/admin/servers/add', body)
+  return data
+}
+
+export interface EditServerBody {
+  id: string
   [key: string]: unknown
 }
 
-/** History query range buckets (matches backend /api/history range param). */
-export type HistoryRange = '1h' | '6h' | '24h' | '7d' | '30d' | '180d'
-
-// ---- Stub API functions (no real logic until P5) ----
-
-/** GET /api/config — public runtime config. */
-export function getConfig(): Promise<AppConfig> {
-  // TODO(P5): return apiClient.get('/api/config').then(r => r.data)
-  return Promise.reject(new Error('getConfig not implemented (P5)'))
+export async function editServer(body: EditServerBody): Promise<void> {
+  await http.post('/api/admin/servers/edit', body)
 }
 
-/** GET /api/servers — list + stats. */
-export function getServers(): Promise<Server[]> {
-  // TODO(P5): return apiClient.get('/api/servers').then(r => r.data)
-  return Promise.reject(new Error('getServers not implemented (P5)'))
+export async function deleteServer(id: string): Promise<void> {
+  await http.post('/api/admin/servers/delete', { id })
 }
 
-/** GET /api/server?id=<id> — one server detail. */
-export function getServer(id: string): Promise<Server> {
-  // TODO(P5): return apiClient.get('/api/server', { params: { id } }).then(r => r.data)
-  void id
-  return Promise.reject(new Error('getServer not implemented (P5)'))
+export async function reorderServers(ids: string[]): Promise<void> {
+  await http.post('/api/admin/servers/reorder', { ids })
 }
 
-/** GET /api/history?id=<id>&range=<r> — downsampled history. */
-export function getServerHistory(
-  id: string,
-  range: HistoryRange,
-): Promise<HistoryPoint[]> {
-  // TODO(P5): return apiClient.get('/api/history', { params: { id, range } }).then(r => r.data)
-  void id
-  void range
-  return Promise.reject(new Error('getServerHistory not implemented (P5)'))
+export async function getSettings(): Promise<Record<string, string | boolean>> {
+  const { data } = await http.get<Record<string, string | boolean>>('/api/admin/settings')
+  return data
+}
+
+export async function saveSettings(obj: Record<string, unknown>): Promise<void> {
+  await http.post('/api/admin/settings', obj)
+}
+
+export async function dbRebuild(): Promise<void> {
+  await http.post('/api/admin/db/rebuild', { confirm: true })
 }

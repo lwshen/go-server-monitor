@@ -1,63 +1,73 @@
 <script setup lang="ts">
+import { computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useServersStore } from '@/stores/servers'
+import { useTheme } from '@/composables/useTheme'
+import { setLocale, type Locale } from '@/i18n'
 
 const { t, locale } = useI18n()
+const store = useServersStore()
+const { theme, init: initTheme, toggle: toggleTheme } = useTheme()
 
-// TODO(P5): wire real theme switching (light/dark/terminal) persisted to
-// localStorage, and a proper language selector. These handlers are placeholders
-// that intentionally do nothing yet.
-function toggleTheme(): void {
-  // TODO(P5): implement theme toggle (useTheme composable).
-  console.log('[App] toggleTheme: not implemented (P5)')
-}
+const siteTitle = computed(() => store.config?.site_title || t('app.title'))
+const year = new Date().getFullYear()
 
 function toggleLang(): void {
-  // TODO(P5): implement persisted language switch.
-  locale.value = locale.value === 'zh' ? 'en' : 'zh'
-  console.log('[App] toggleLang: placeholder switch only (P5)')
+  setLocale(locale.value === 'zh' ? 'en' : 'zh')
 }
+
+onMounted(async () => {
+  await store.loadConfig()
+  // Only honor the config theme default when the user hasn't chosen one.
+  initTheme(store.config?.theme_default)
+  if (!localStorage.getItem('lang') && store.config?.lang_default) {
+    const def = store.config.lang_default
+    if (def === 'zh' || def === 'en') setLocale(def as Locale)
+  }
+})
 </script>
 
 <template>
   <div id="app-shell">
-    <header class="nav-placeholder">
-      <span class="brand">{{ t('app.title') }}</span>
+    <header class="app-header">
+      <RouterLink to="/" class="brand" :aria-label="siteTitle">
+        <span class="brand-dot" aria-hidden="true"></span>
+        <span class="title-text">{{ siteTitle }}</span>
+      </RouterLink>
+
       <nav>
         <RouterLink to="/">{{ t('nav.dashboard') }}</RouterLink>
         <RouterLink to="/admin">{{ t('nav.admin') }}</RouterLink>
       </nav>
+
+      <div class="spacer"></div>
+
       <div class="controls">
-        <!-- Placeholder toggles — wired in P5. -->
-        <button type="button" @click="toggleTheme">theme</button>
-        <button type="button" @click="toggleLang">{{ locale }}</button>
+        <button
+          type="button"
+          class="icon-btn"
+          :title="t('common.lang')"
+          @click="toggleLang"
+        >
+          {{ locale === 'zh' ? '中' : 'EN' }}
+        </button>
+        <button
+          type="button"
+          class="icon-btn"
+          :title="t('common.theme')"
+          @click="toggleTheme"
+        >
+          {{ theme === 'dark' ? '☾' : '☀' }}
+        </button>
       </div>
     </header>
 
     <main>
-      <RouterView />
+      <div class="container">
+        <RouterView />
+      </div>
     </main>
 
-    <!-- TODO(P5): Footer component (version / credits / legal links). -->
+    <footer class="app-footer">{{ siteTitle }} · {{ year }}</footer>
   </div>
 </template>
-
-<style scoped>
-.nav-placeholder {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 0.5rem 1rem;
-}
-.nav-placeholder .brand {
-  font-weight: 600;
-}
-.nav-placeholder nav {
-  display: flex;
-  gap: 0.75rem;
-}
-.nav-placeholder .controls {
-  margin-left: auto;
-  display: flex;
-  gap: 0.5rem;
-}
-</style>
