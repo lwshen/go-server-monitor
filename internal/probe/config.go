@@ -18,6 +18,7 @@ type ProbeTarget struct {
 // Config holds probe runtime configuration (REQ-PROBE-05 / REQ-PROBE-11).
 type Config struct {
 	ServerURL       string        // SERVER_URL — server base URL (required)
+	ServerID        string        // SERVER_ID — this server's UUID (from admin add; required)
 	APISecret       string        // API_SECRET / SECRET — shared upload secret (required)
 	CollectInterval time.Duration // COLLECT_INTERVAL — sample period (default 5s)
 	ReportInterval  time.Duration // REPORT_INTERVAL — upload period (default 60s)
@@ -41,6 +42,7 @@ func DefaultTargets() []ProbeTarget {
 func Load() *Config {
 	return &Config{
 		ServerURL:       env("SERVER_URL", ""),
+		ServerID:        firstNonEmpty(os.Getenv("SERVER_ID"), os.Getenv("ID")),
 		APISecret:       firstNonEmpty(os.Getenv("API_SECRET"), os.Getenv("SECRET")),
 		CollectInterval: envDuration("COLLECT_INTERVAL", 5*time.Second),
 		ReportInterval:  envDuration("REPORT_INTERVAL", 60*time.Second),
