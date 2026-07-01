@@ -58,6 +58,15 @@ type Store interface {
 	SetSetting(ctx context.Context, key, value string) error
 	AllSettings(ctx context.Context) (map[string]string, error)
 
+	// ── cron support (P7) ────────────────────────────────────────────────────
+	// ListServerStates returns each server's offline/expiration state + last-seen
+	// timestamp, for the scheduled jobs.
+	ListServerStates(ctx context.Context) ([]models.ServerState, error)
+	// SetOnlineState records an online/offline transition (REQ-CRON-05).
+	SetOnlineState(ctx context.Context, id string, online bool, atUnix int64) error
+	// MarkExpirationNotified flags that an expiry reminder has been sent (REQ-CRON-07).
+	MarkExpirationNotified(ctx context.Context, id string) error
+
 	// ── maintenance (P7/P9) ──────────────────────────────────────────────────
 	// DeleteMetricsBefore prunes metrics_history older than cutoff (Unix seconds).
 	DeleteMetricsBefore(ctx context.Context, cutoffUnix int64) (int64, error)

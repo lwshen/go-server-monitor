@@ -100,6 +100,22 @@ func (s *bunStore) QueryHistory(ctx context.Context, id, rng string) ([]models.H
 	return points, nil
 }
 
+// ListServerStates returns every server's offline/expiration state plus its
+// last-seen timestamp (newest metric), for the P7 cron jobs. The correlated
+// subquery for last_seen is dialect-portable (no GROUP BY).
+func (s *bunStore) ListServerStates(ctx context.Context) ([]models.ServerState, error) {
+	var states []models.ServerState
+	err := s.db.NewSelect().
+		Model((*serverRow)(nil)).
+		ColumnExpr("id, name, location, report_interval, last_online_state, expire_date, expiration_notified").
+		ColumnExpr("(SELECT COALESCE(MAX(mh.timestamp), 0) FROM metrics_history mh WHERE mh.server_id = srv.id) AS last_seen").
+		Scan(ctx, &states)
+	if err != nil {
+		return nil, err
+	}
+	return states, nil
+}
+
 // latestMetric loads the newest metrics_history row for a server, returning
 // (nil, 0, nil) when the server has never reported.
 func (s *bunStore) latestMetric(ctx context.Context, serverID string) (*models.MetricsRow, int64, error) {

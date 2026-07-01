@@ -56,7 +56,7 @@ func main() {
 	go hub.Run()
 
 	// 6. Start cron jobs.
-	notifier := service.NewNotifier("", "", "", log)
+	notifier := service.NewNotifier(st, log)
 	cronScheduler, err := cron.Start(cron.Deps{
 		Store:    st,
 		Cfg:      cfg,

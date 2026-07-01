@@ -273,11 +273,43 @@ func (s *bunStore) AllSettings(ctx context.Context) (map[string]string, error) {
 	return out, nil
 }
 
+// ── cron support (P7) ────────────────────────────────────────────────────────
+
+// SetOnlineState records an online/offline transition (REQ-CRON-05).
+func (s *bunStore) SetOnlineState(ctx context.Context, id string, online bool, atUnix int64) error {
+	state := 0
+	if online {
+		state = 1
+	}
+	_, err := s.db.NewUpdate().Model((*serverRow)(nil)).
+		Set("last_online_state = ?", state).
+		Set("last_state_change = ?", atUnix).
+		Where("id = ?", id).
+		Exec(ctx)
+	return err
+}
+
+// MarkExpirationNotified flags that an expiry reminder has been sent (REQ-CRON-07).
+func (s *bunStore) MarkExpirationNotified(ctx context.Context, id string) error {
+	_, err := s.db.NewUpdate().Model((*serverRow)(nil)).
+		Set("expiration_notified = ?", 1).
+		Where("id = ?", id).
+		Exec(ctx)
+	return err
+}
+
 // ── maintenance (P7/P9) ──────────────────────────────────────────────────────
 
+// DeleteMetricsBefore prunes metrics_history rows older than cutoff (REQ-CRON-06).
 func (s *bunStore) DeleteMetricsBefore(ctx context.Context, cutoffUnix int64) (int64, error) {
-	s.log.Warn("store.DeleteMetricsBefore not implemented (P7)")
-	return 0, apperr.ErrNotImplemented
+	res, err := s.db.NewDelete().Model((*metricRow)(nil)).
+		Where("timestamp < ?", cutoffUnix).
+		Exec(ctx)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
 
 func (s *bunStore) RebuildMetrics(ctx context.Context) error {
