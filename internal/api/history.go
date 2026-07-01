@@ -1,15 +1,31 @@
 package api
 
-import "github.com/gin-gonic/gin"
+import (
+	"net/http"
 
-// History returns downsampled history (GET /api/history?id=<id>&range=<r>).
-// range is one of 1h/6h/24h/7d/30d/180d.
-//
-// P0 STUB: 501.
-//
-// TODO(P2): map range -> bucket size (REQ-RES-03: 1h=30s, 6h=1m, 24h=5m, 7d=30m,
-// 30d=2h, 180d=12h), GROUP BY timestamp/bucket with AVG over metrics, ignoring
-// -1/NULL for ping_*/loss_*; cache per (id,range) for one bucket period.
+	"github.com/gin-gonic/gin"
+)
+
+// History returns server-side downsampled history (GET /api/history?id=<id>&range=<r>).
+// range is one of 1h/6h/24h/7d/30d/180d (default 1h); the store buckets and
+// averages per REQ-RES-03 (ping_*/loss_* ignore NULLs).
 func (h *Handlers) History(c *gin.Context) {
-	notImplemented(c)
+	id := c.Query("id")
+	if id == "" {
+		Error(c, http.StatusBadRequest, "missing id")
+		return
+	}
+	rng := c.DefaultQuery("range", "1h")
+
+	points, err := h.deps.Store.QueryHistory(c.Request.Context(), id, rng)
+	if err != nil {
+		ErrorFrom(c, err) // invalid range surfaces as a 400 apperr
+		return
+	}
+
+	JSON(c, http.StatusOK, gin.H{
+		"id":      id,
+		"range":   rng,
+		"samples": points,
+	})
 }

@@ -6,21 +6,22 @@ import (
 	"github.com/lwshen/go-server-monitor/internal/models"
 	"github.com/lwshen/go-server-monitor/internal/store"
 	"github.com/lwshen/go-server-monitor/internal/ws"
-	"github.com/lwshen/go-server-monitor/pkg/apperr"
 	"go.uber.org/zap"
 )
 
-// SaveMetrics persists a probe report and broadcasts the realtime update
-// (REQ-API-06 / REQ-WS-07).
+// Ingest persists a probe report and (P4) broadcasts the realtime update. It is
+// the single orchestration point between the store write and the WebSocket hub
+// (REQ-API-06 / REQ-WS-07). Returns the number of metric rows written.
 //
-// P0 STUB: logs "not implemented" and returns ErrNotImplemented.
-//
-// TODO(P2): in a transaction, upsert the servers row and INSERT every sample
-// into metrics_history (each sample its own row, REQ-RES-04); store disks[] as
-// disks_json (REQ-RES-02); map -1 sentinels to NULL.
 // TODO(P4): after a successful write, build a BroadcastData with static fields
-// removed (models.BroadcastDeleteFields, REQ-RES-06) and call hub.Broadcast.
-func SaveMetrics(ctx context.Context, st store.Store, hub *ws.Hub, report *models.StatReport, log *zap.Logger) error {
-	log.Warn("service.SaveMetrics not implemented (P2)")
-	return apperr.ErrNotImplemented
+// removed (models.BroadcastDeleteFields, REQ-RES-06) and call hub.Broadcast —
+// a single `update` frame for one sample, else a `batchUpdate` frame (REQ-RES-04).
+func Ingest(ctx context.Context, st store.Store, hub *ws.Hub, req *models.ReportRequest, log *zap.Logger) (int, error) {
+	n, err := st.SaveReport(ctx, req)
+	if err != nil {
+		return 0, err
+	}
+	log.Info("上报已入库", zap.String("server_id", req.ID), zap.Int("samples", n))
+	_ = hub // TODO(P4): broadcast the dynamic metrics to subscribers
+	return n, nil
 }
