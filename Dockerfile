@@ -5,14 +5,10 @@
 # Authority: requirements/10-deployment-ops.md (REQ-OPS-01/02),
 #            requirements/12-build-plan.md (P0 deliverable 5, P8 REQ-DEPLOY-05).
 #
-# Goal: a small (<50MB-ish) image. The server is a single static Go binary
-# (CGO_ENABLED=0 — modernc.org/sqlite is pure Go, so no cgo / libc needed),
-# bundled with the built Vue SPA in /app/web/dist.
-#
-# NOTE(P8): once REQ-DEPLOY-03 lands, the SPA in web/dist is expected to be
-# embedded into the Go binary via //go:embed. Until then the runtime stage
-# copies web/dist alongside the binary and Caddy / the server serves it from
-# the filesystem. This Dockerfile is written to work either way.
+# The server is a single static Go binary (CGO_ENABLED=0 — modernc.org/sqlite is
+# pure Go, no cgo/libc) with the built Vue SPA EMBEDDED via //go:embed
+# (compiled with -tags embed, REQ-DEPLOY-03). The runtime image is just the
+# binary — it serves both the API and the SPA; Caddy only terminates TLS.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── Stage 1: build the Vue 3 SPA → web/dist ─────────────────────────────────
@@ -40,10 +36,14 @@ RUN apk add --no-cache git
 COPY go.mod go.sum* ./
 RUN go mod download
 
-# Build the static binary. CGO disabled → fully static, runs on bare alpine.
+# Build the static binary with the SPA embedded (-tags embed). The built dist
+# from stage 1 is copied into web/dist so //go:embed all:dist resolves.
+# CGO disabled → fully static, runs on bare alpine.
 COPY . .
+COPY --from=web-builder /web/dist ./web/dist
 ARG VERSION=dev
 RUN CGO_ENABLED=0 GOOS=linux go build \
+    -tags embed \
     -trimpath \
     -ldflags "-s -w -X main.Version=${VERSION}" \
     -o /out/server ./cmd/server
@@ -58,10 +58,9 @@ RUN apk add --no-cache ca-certificates curl tzdata
 
 WORKDIR /app
 
-# Server binary + built SPA. When go:embed lands (P8) the web/dist copy
-# becomes optional, but keeping it is harmless.
+# Single self-contained binary — the SPA is embedded (built with -tags embed),
+# so no separate web/dist copy is needed at runtime.
 COPY --from=go-builder /out/server /app/server
-COPY --from=web-builder /web/dist /app/web/dist
 
 # Persisted data (SQLite db + WAL/SHM). Mounted as a volume in compose.
 RUN mkdir -p /data

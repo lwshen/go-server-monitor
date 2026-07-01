@@ -23,6 +23,7 @@ import (
 	"github.com/lwshen/go-server-monitor/internal/store"
 	"github.com/lwshen/go-server-monitor/internal/ws"
 	"github.com/lwshen/go-server-monitor/pkg/logger"
+	"github.com/lwshen/go-server-monitor/web"
 )
 
 func main() {
@@ -70,12 +71,22 @@ func main() {
 		log.Fatal("Cron 启动失败", zap.Error(err))
 	}
 
-	// 7. Build the HTTP router.
+	// Warn loudly if the admin API is reachable without authentication.
+	if cfg.JWTSecret == "" {
+		log.Warn("管理后台未启用鉴权：JWT_SECRET/ADMIN_PASSWORD 未设置，/api/admin/* 无需令牌即可访问（生产环境务必设置）")
+	}
+
+	// 7. Build the HTTP router (serving the embedded SPA when built with -tags embed).
+	spa, embedded := web.Assets()
+	if embedded {
+		log.Info("已启用内嵌前端 (embedded SPA)")
+	}
 	router := api.NewRouter(api.Deps{
 		Cfg:   cfg,
 		Store: st,
 		Hub:   hub,
 		Log:   log,
+		SPA:   spa,
 	})
 
 	// 8. Start the HTTP server in a goroutine.

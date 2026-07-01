@@ -24,13 +24,17 @@ PLATFORMS=("linux/amd64" "linux/arm64" "darwin/amd64" "darwin/arm64")
 
 mkdir -p "${BIN_DIR}"
 
+# Build the SPA first so the server can embed it (-tags embed -> //go:embed dist).
+echo "==> building web SPA"
+( cd web && { [ -d node_modules ] || npm ci; } && npm run build )
+
 echo "==> building go-server-monitor (version=${VERSION})"
 for platform in "${PLATFORMS[@]}"; do
   os="${platform%/*}"
   arch="${platform#*/}"
-  echo "    server  ${os}/${arch}"
+  echo "    server  ${os}/${arch} (embedded SPA)"
   CGO_ENABLED=0 GOOS="${os}" GOARCH="${arch}" \
-    go build -trimpath -ldflags "${LDFLAGS}" \
+    go build -tags embed -trimpath -ldflags "${LDFLAGS}" \
     -o "${BIN_DIR}/server-${os}-${arch}" ./cmd/server
   echo "    probe   ${os}/${arch}"
   CGO_ENABLED=0 GOOS="${os}" GOARCH="${arch}" \

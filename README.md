@@ -47,14 +47,19 @@ Health check (frozen public endpoint): `curl http://localhost:8080/health`
 ## Build
 
 ```bash
-make build            # -> bin/server (host)
+make build            # -> bin/server (host, dev — no embedded SPA; use the Vite dev server)
 make build-probe      # -> bin/probe (host)
 make build-web        # build the Vue SPA into web/dist (auto npm ci if needed)
-make build-all        # build everything for the host: web + server + probe
-make release          # cross-compile server + probe for linux/darwin x amd64/arm64 (+ web)
+make build-embed      # -> bin/server with the SPA embedded (//go:embed, -tags embed)
+make build-all        # runnable single binary (SPA-embedded server) + probe
+make release          # cross-compile the SPA-embedded server + probe for linux/darwin x amd64/arm64
 
 ./scripts/build.sh [VERSION]   # same cross-compile matrix as `make release`
 ```
+
+A release/embed binary serves the whole app itself — run it and open `http://localhost:8080`
+(the SPA, REST API and WebSocket are all on one port). Plain `make build` omits the SPA so
+`go build` works without a frontend build; use `npm run dev` for the UI during development.
 
 ## Docker / docker-compose
 

@@ -1,6 +1,8 @@
 package api
 
 import (
+	"io/fs"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/lwshen/go-server-monitor/internal/config"
@@ -16,6 +18,7 @@ type Deps struct {
 	Store store.Store
 	Hub   *ws.Hub
 	Log   *zap.Logger
+	SPA   fs.FS // embedded Vue SPA (nil in dev builds; served by Vite instead)
 }
 
 // Handlers carries Deps onto the handler methods (one method per endpoint).
@@ -24,14 +27,9 @@ type Handlers struct {
 }
 
 // NewRouter builds the gin engine and registers every frozen endpoint
-// (REQ-RES-00). All routes resolve to P0 stubs that respond 501 or a placeholder
-// payload; /health returns 200.
-//
-// Static file serving (the Vue SPA) is intentionally NOT wired here: web/dist does
-// not exist yet and //go:embed of a missing dir breaks compilation.
-//
-// TODO(P8): serve the embedded web/dist SPA (index.html + /assets/*) once the
-// frontend build exists.
+// (REQ-RES-00). When deps.SPA is non-nil (release builds with the embedded Vue
+// dist), the SPA is served as the NoRoute fallback: static files directly and
+// client-side routes via index.html (see registerSPA).
 func NewRouter(deps Deps) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
@@ -64,6 +62,11 @@ func NewRouter(deps Deps) *gin.Engine {
 		admin.GET("/settings", h.AdminGetSettings)
 		admin.POST("/settings", h.AdminPostSettings)
 		admin.POST("/db/rebuild", h.AdminDBRebuild)
+	}
+
+	// ── embedded SPA (release builds) ───────────────────
+	if deps.SPA != nil {
+		registerSPA(r, deps.SPA)
 	}
 
 	return r

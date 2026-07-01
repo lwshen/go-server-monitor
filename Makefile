@@ -25,12 +25,15 @@ BIN_DIR     := bin
 SERVER_PKG  := ./cmd/server
 PROBE_PKG   := ./cmd/probe
 # CGO disabled: modernc.org/sqlite is pure Go → static, cross-compile friendly.
-GOBUILD     := CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)"
+GOBUILD       := CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)"
+# `-tags embed` bundles web/dist into the binary (//go:embed); requires a prior
+# `build-web`. Dev builds omit it so `go build` works without dist.
+GOBUILD_EMBED := CGO_ENABLED=0 go build -tags embed -trimpath -ldflags "$(LDFLAGS)"
 
 # Cross-compile matrix for the release target.
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 
-.PHONY: all build build-probe build-web build-all release run tidy test vet fmt \
+.PHONY: all build build-probe build-web build-embed build-all release run tidy test vet fmt \
         install-web docker-build docker-up docker-down clean
 
 # Bare `make` = quick host server build (fast inner loop).
@@ -45,21 +48,25 @@ build:
 build-probe:
 	$(GOBUILD) -o $(BIN_DIR)/probe $(PROBE_PKG)
 
-## build-all: build every component for the host — web SPA + server + probe
-build-all: build-web build build-probe
-	@echo "done -> web/dist + $(BIN_DIR)/server + $(BIN_DIR)/probe"
+## build-embed: host server binary with the SPA embedded (needs a built web/dist)
+build-embed: build-web
+	$(GOBUILD_EMBED) -o $(BIN_DIR)/server $(SERVER_PKG)
 
-## release: cross-compile server + probe for all platforms, plus the web SPA once
+## build-all: build a runnable single binary (SPA-embedded server) + probe
+build-all: build-embed build-probe
+	@echo "done -> $(BIN_DIR)/server (SPA embedded) + $(BIN_DIR)/probe"
+
+## release: cross-compile the SPA-embedded server + probe for all platforms
 release: build-web
 	@mkdir -p $(BIN_DIR)
 	@for platform in $(PLATFORMS); do \
 		os=$${platform%/*}; arch=$${platform#*/}; \
-		echo "building server $$os/$$arch"; \
-		GOOS=$$os GOARCH=$$arch $(GOBUILD) -o $(BIN_DIR)/server-$$os-$$arch $(SERVER_PKG); \
+		echo "building server $$os/$$arch (embedded SPA)"; \
+		GOOS=$$os GOARCH=$$arch $(GOBUILD_EMBED) -o $(BIN_DIR)/server-$$os-$$arch $(SERVER_PKG); \
 		echo "building probe  $$os/$$arch"; \
 		GOOS=$$os GOARCH=$$arch $(GOBUILD) -o $(BIN_DIR)/probe-$$os-$$arch $(PROBE_PKG); \
 	done
-	@echo "done -> $(BIN_DIR)/ (+ web/dist)"
+	@echo "done -> $(BIN_DIR)/"
 
 ## run: run the server from source
 run:

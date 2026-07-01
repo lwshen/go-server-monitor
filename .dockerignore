@@ -1,0 +1,26 @@
+# Keep the Docker build context small + reproducible. The image builds the SPA
+# and the Go binary from source inside the stages.
+.git
+.idea
+.vscode
+requirements/
+
+# Frontend deps + build output (the node stage runs npm ci + build fresh).
+web/node_modules
+web/dist
+
+# Go / local build artifacts + runtime data.
+bin/
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Secrets / local env.
+.env
+.env.*
+!.env.example
+
+# OS / misc.
+.DS_Store
+*.log
