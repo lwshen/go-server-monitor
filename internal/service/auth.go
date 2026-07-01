@@ -4,10 +4,15 @@
 package service
 
 import (
+	"context"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
+
+	"github.com/lwshen/go-server-monitor/internal/models"
+	"github.com/lwshen/go-server-monitor/internal/store"
 )
 
 // jwtTTL is the admin JWT validity window (REQ-RES-05 / REQ-SEC-02): 7 days.
@@ -52,4 +57,37 @@ func ParseJWT(secret, tokenString string) (*jwt.RegisteredClaims, error) {
 		return nil, err
 	}
 	return claims, nil
+}
+
+// BootstrapAdmin seeds the admin credentials into the settings table on first
+// start (REQ-RES-05): if no admin_password_hash exists yet and an ADMIN_PASSWORD
+// was provided, it stores the username and the bcrypt hash. Idempotent — a
+// no-op once configured. With no password set, admin login stays unavailable.
+func BootstrapAdmin(ctx context.Context, st store.Store, username, password string, log *zap.Logger) error {
+	existing, err := st.GetSetting(ctx, models.SettingAdminPasswordHash)
+	if err != nil {
+		return err
+	}
+	if existing != "" {
+		return nil
+	}
+	if password == "" {
+		log.Warn("ADMIN_PASSWORD 未设置：管理后台登录不可用（设置后重启以启用）")
+		return nil
+	}
+	hash, err := HashPassword(password)
+	if err != nil {
+		return err
+	}
+	if username == "" {
+		username = "admin"
+	}
+	if err := st.SetSetting(ctx, models.SettingAdminUsername, username); err != nil {
+		return err
+	}
+	if err := st.SetSetting(ctx, models.SettingAdminPasswordHash, hash); err != nil {
+		return err
+	}
+	log.Info("管理员账号已初始化", zap.String("username", username))
+	return nil
 }

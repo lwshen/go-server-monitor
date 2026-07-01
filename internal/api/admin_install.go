@@ -1,6 +1,10 @@
 package api
 
-import "github.com/gin-gonic/gin"
+import (
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+)
 
 // AdminInstallCommand generates a probe install command (REQ-ADMIN-08).
 //
@@ -17,12 +21,19 @@ func (h *Handlers) AdminInstallCommand(c *gin.Context) {
 }
 
 // AdminDBRebuild rebuilds metrics_history only (POST /api/admin/db/rebuild, JWT;
-// REQ-RES-09). Dangerous: keeps servers/settings, clears time-series.
-//
-// P0 STUB: 501.
-//
-// TODO(P6): require a second-confirmation parameter, then TRUNCATE/recreate
-// metrics_history while preserving servers and settings.
+// REQ-RES-09). Dangerous — clears the time-series but keeps servers/settings — so
+// it requires an explicit {"confirm": true} in the body.
 func (h *Handlers) AdminDBRebuild(c *gin.Context) {
-	notImplemented(c)
+	var body struct {
+		Confirm bool `json:"confirm"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || !body.Confirm {
+		Error(c, http.StatusBadRequest, `refusing to rebuild without {"confirm": true}`)
+		return
+	}
+	if err := h.deps.Store.RebuildMetrics(c.Request.Context()); err != nil {
+		ErrorFrom(c, err)
+		return
+	}
+	JSON(c, http.StatusOK, gin.H{"success": true})
 }

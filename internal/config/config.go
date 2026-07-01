@@ -17,6 +17,7 @@ import (
 // (REQ-RES-01). For the skeleton they are simply surfaced here.
 type Config struct {
 	APISecret     string // API_SECRET — probe upload shared secret ("" disables /report)
+	AdminUsername string // ADMIN_USERNAME — admin login username (default "admin")
 	AdminPassword string // ADMIN_PASSWORD — plaintext bootstrap password, bcrypt-hashed on first start
 	JWTSecret     string // JWT_SECRET — JWT signing key (derived from ADMIN_PASSWORD if empty)
 
@@ -42,6 +43,7 @@ type Config struct {
 func Load() (*Config, error) {
 	cfg := &Config{
 		APISecret:           env("API_SECRET", ""),
+		AdminUsername:       env("ADMIN_USERNAME", "admin"),
 		AdminPassword:       env("ADMIN_PASSWORD", ""),
 		JWTSecret:           env("JWT_SECRET", ""),
 		DatabaseURL:         env("DATABASE_URL", ""),

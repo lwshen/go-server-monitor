@@ -50,6 +50,9 @@ func main() {
 	if err := st.Migrate(context.Background()); err != nil {
 		log.Fatal("数据库迁移失败", zap.Error(err))
 	}
+	if err := service.BootstrapAdmin(context.Background(), st, cfg.AdminUsername, cfg.AdminPassword, log); err != nil {
+		log.Fatal("管理员初始化失败", zap.Error(err))
+	}
 
 	// 5. Start the WebSocket hub.
 	hub := ws.NewHub(log)

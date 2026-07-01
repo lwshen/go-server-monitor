@@ -216,19 +216,69 @@ func (s *bunStore) CreateServer(ctx context.Context, cfg *models.ServerConfig) e
 	return nil
 }
 
+// UpdateServer overwrites the admin-editable columns of a server (REQ-ADMIN-06);
+// probe-managed display fields and created_at are left untouched. 404 if unknown.
 func (s *bunStore) UpdateServer(ctx context.Context, cfg *models.ServerConfig) error {
-	s.log.Warn("store.UpdateServer not implemented (P6)")
-	return apperr.ErrNotImplemented
+	res, err := s.db.NewUpdate().Model((*serverRow)(nil)).
+		Set("name = ?", cfg.Name).
+		Set("server_group = ?", cfg.ServerGroup).
+		Set("price = ?", cfg.Price).
+		Set("expire_date = ?", cfg.ExpireDate).
+		Set("bandwidth = ?", cfg.Bandwidth).
+		Set("traffic_limit = ?", cfg.TrafficLimit).
+		Set("traffic_calc_type = ?", cfg.TrafficCalcType).
+		Set("reset_day = ?", cfg.ResetDay).
+		Set("collect_interval = ?", cfg.CollectInterval).
+		Set("report_interval = ?", cfg.ReportInterval).
+		Set("ping_mode = ?", cfg.PingMode).
+		Set("is_hidden = ?", cfg.IsHidden).
+		Set("sort_order = ?", cfg.SortOrder).
+		Set("updated_at = ?", nowISO()).
+		Where("id = ?", cfg.ID).
+		Exec(ctx)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return apperr.New(404, "server not found")
+	}
+	return nil
 }
 
+// DeleteServer removes a server and all of its metrics (REQ-ADMIN-06). The delete
+// is explicit (not relying on the FK cascade + per-connection PRAGMA) so it is
+// robust across backends. 404 if unknown.
 func (s *bunStore) DeleteServer(ctx context.Context, id string) error {
-	s.log.Warn("store.DeleteServer not implemented (P6)")
-	return apperr.ErrNotImplemented
+	return s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if _, err := tx.NewDelete().Model((*metricRow)(nil)).Where("server_id = ?", id).Exec(ctx); err != nil {
+			return err
+		}
+		res, err := tx.NewDelete().Model((*serverRow)(nil)).Where("id = ?", id).Exec(ctx)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return apperr.New(404, "server not found")
+		}
+		return nil
+	})
 }
 
+// ReorderServers assigns sort_order by the given id order (REQ-ADMIN-06).
 func (s *bunStore) ReorderServers(ctx context.Context, orderedIDs []string) error {
-	s.log.Warn("store.ReorderServers not implemented (P6)")
-	return apperr.ErrNotImplemented
+	now := nowISO()
+	return s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		for i, id := range orderedIDs {
+			if _, err := tx.NewUpdate().Model((*serverRow)(nil)).
+				Set("sort_order = ?", i).
+				Set("updated_at = ?", now).
+				Where("id = ?", id).
+				Exec(ctx); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // ── settings (P6) ────────────────────────────────────────────────────────────
@@ -312,7 +362,33 @@ func (s *bunStore) DeleteMetricsBefore(ctx context.Context, cutoffUnix int64) (i
 	return n, nil
 }
 
+// RebuildMetrics drops and recreates metrics_history only, preserving servers and
+// settings (REQ-RES-09) — a recovery path for a corrupt time-series table.
 func (s *bunStore) RebuildMetrics(ctx context.Context) error {
-	s.log.Warn("store.RebuildMetrics not implemented (P9)")
-	return apperr.ErrNotImplemented
+	return s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if _, err := tx.NewDropTable().Model((*metricRow)(nil)).IfExists().Exec(ctx); err != nil {
+			return fmt.Errorf("drop metrics_history: %w", err)
+		}
+		if _, err := tx.NewCreateTable().
+			Model((*metricRow)(nil)).
+			IfNotExists().
+			ForeignKey(`("server_id") REFERENCES "servers" ("id") ON DELETE CASCADE`).
+			Exec(ctx); err != nil {
+			return fmt.Errorf("recreate metrics_history: %w", err)
+		}
+		for _, idx := range []struct {
+			name string
+			cols []string
+		}{
+			{"idx_history_server_time", []string{"server_id", "timestamp"}},
+			{"idx_history_timestamp", []string{"timestamp"}},
+		} {
+			if _, err := tx.NewCreateIndex().Model((*metricRow)(nil)).
+				Index(idx.name).Column(idx.cols...).IfNotExists().Exec(ctx); err != nil {
+				return fmt.Errorf("recreate index %s: %w", idx.name, err)
+			}
+		}
+		s.log.Warn("metrics_history rebuilt (time-series cleared)")
+		return nil
+	})
 }
