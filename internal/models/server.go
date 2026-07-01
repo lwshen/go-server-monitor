@@ -23,13 +23,23 @@ type ServerConfig struct {
 }
 
 // Server is a ServerConfig joined with its latest metrics snapshot, as returned
-// by GET /api/servers and GET /api/server.
-//
-// TODO(P2): fill LatestMetrics from the most recent metrics_history row and
-// compute online/offline status.
+// by GET /api/servers and GET /api/server. The display-metadata fields
+// (gid/alias/type/location/notify) are probe-pushed (report-types.ts) and kept
+// alongside the admin-managed ServerConfig.
 type Server struct {
 	ServerConfig
+
+	Gid      string `json:"gid"`
+	Alias    string `json:"alias"`
+	Type     string `json:"type"`
+	Location string `json:"location"`
+	Notify   bool   `json:"notify"`
+
 	LatestMetrics *MetricsRow `json:"latest_metrics,omitempty"`
 	LastUpdated   int64       `json:"last_updated"` // Unix seconds of latest sample
-	Online        bool        `json:"online"`       // derived from offline detection
+	Online        bool        `json:"online"`       // derived: recent data within offline threshold
+
+	// SysInfo / IpInfo structured snapshots, populated by GET /api/server only.
+	SysInfo *SysInfo `json:"sys_info,omitempty"`
+	IpInfo  *IpInfo  `json:"ip_info,omitempty"`
 }

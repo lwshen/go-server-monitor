@@ -24,6 +24,14 @@ CREATE TABLE IF NOT EXISTS servers (
   id                  TEXT PRIMARY KEY,           -- UUID v4
   name                TEXT NOT NULL,              -- display name
   server_group        TEXT DEFAULT 'Default',     -- grouping label
+
+  -- probe-pushed display metadata (report-types.ts; refreshed on each report, REQ-API-02)
+  gid                 TEXT DEFAULT '',            -- group id
+  alias               TEXT DEFAULT '',            -- display alias
+  type                TEXT DEFAULT '',            -- host type label
+  location            TEXT DEFAULT '',            -- location label
+  notify              INTEGER DEFAULT 0,          -- 0/1 (bool)
+
   price               TEXT DEFAULT '',            -- free-text monthly price
   expire_date         TEXT DEFAULT '',            -- YYYY-MM-DD, '' = perpetual
   bandwidth           TEXT DEFAULT '',            -- free-text bandwidth tier

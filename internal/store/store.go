@@ -32,15 +32,20 @@ type Store interface {
 	Close() error
 
 	// ── ingest (P2) ──────────────────────────────────────────────────────────
-	// SaveReport upserts the servers row and inserts every sample into
-	// metrics_history (one row per sample, REQ-RES-04).
-	SaveReport(ctx context.Context, report *models.StatReport) error
+	// SaveReport upserts the servers row from the newest sample and inserts every
+	// sample into metrics_history (one row per sample, REQ-RES-04). Returns the
+	// number of metric rows written.
+	SaveReport(ctx context.Context, req *models.ReportRequest) (int, error)
 
 	// ── public reads (P2) ────────────────────────────────────────────────────
+	// ListServers returns every server with its latest metrics snapshot. Online
+	// status is derived by the caller (it depends on config).
 	ListServers(ctx context.Context) ([]models.Server, error)
+	// GetServer returns one server with latest metrics + sys_info/ip_info snapshot,
+	// or (nil, nil) when the id is unknown.
 	GetServer(ctx context.Context, id string) (*models.Server, error)
-	// QueryHistory returns downsampled samples for a range key (1h/6h/24h/7d/30d/180d).
-	QueryHistory(ctx context.Context, id, rng string) ([]models.MetricsRow, error)
+	// QueryHistory returns downsampled buckets for a range key (1h/6h/24h/7d/30d/180d).
+	QueryHistory(ctx context.Context, id, rng string) ([]models.HistoryPoint, error)
 
 	// ── admin server CRUD (P6) ───────────────────────────────────────────────
 	CreateServer(ctx context.Context, cfg *models.ServerConfig) error

@@ -130,18 +130,26 @@ type IpInfo struct {
 	Timezone   string  `json:"timezone"`
 }
 
-// ReportRequest is the wire envelope a probe POSTs to /report.
+// ReportRequest is the wire envelope a probe POSTs to /report (03-report-protocol
+// §2.2). The probe authenticates with a plaintext "secret" field, constant-time
+// compared to api_secret (REQ-RES-05, no HMAC).
 //
-// The envelope shape is debated between chapters; report-types.ts (StatReport)
-// is the canonical body contract. Per REQ-RES-05 the probe authenticates with a
-// plaintext "secret" field in the JSON body (no HMAC). When collect_interval <
-// report_interval a single POST carries multiple Samples (REQ-RES-04).
-//
-// TODO(P2): reconcile the exact envelope vs. flat-StatReport debate and finalize
-// how Samples relate to the top-level StatReport fields.
+// Data is the main sample. When collect_interval < report_interval a single POST
+// also carries Samples — older sub-samples collected since the last upload
+// (REQ-RES-04); every sample is written as its own metrics_history row, and the
+// newest-timestamp sample drives the server's "current" snapshot.
 type ReportRequest struct {
-	ID      string        `json:"id"`                // server id
-	Secret  string        `json:"secret"`            // plaintext shared secret (constant-time compared)
-	Report  *StatReport   `json:"report,omitempty"`  // single-sample report (top-level metrics)
-	Samples []*StatReport `json:"samples,omitempty"` // multi-sample batch (each with its own latest_ts)
+	ID              string         `json:"id"`               // server UUID (admin-created or first-seen)
+	Secret          string         `json:"secret"`           // plaintext shared secret
+	Timestamp       int64          `json:"timestamp"`        // report time, Unix sec or ms (normalized)
+	Data            *StatReport    `json:"data"`             // main metrics payload
+	CollectInterval int            `json:"collect_interval"` // sample interval (s); 0 = no subsampling
+	ReportInterval  int            `json:"report_interval"`  // report interval (s)
+	Samples         []ReportSample `json:"samples,omitempty"`
+}
+
+// ReportSample is one timestamped sub-sample inside a batched upload.
+type ReportSample struct {
+	Timestamp int64       `json:"timestamp"` // Unix sec or ms (normalized)
+	Data      *StatReport `json:"data"`
 }

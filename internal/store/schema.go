@@ -23,9 +23,17 @@ import "github.com/uptrace/bun"
 type serverRow struct {
 	bun.BaseModel `bun:"table:servers,alias:srv"`
 
-	ID              string `bun:"id,pk"`
-	Name            string `bun:"name,notnull"`
-	ServerGroup     string `bun:"server_group,default:'Default'"`
+	ID          string `bun:"id,pk"`
+	Name        string `bun:"name,notnull"`
+	ServerGroup string `bun:"server_group,default:'Default'"`
+
+	// probe-pushed display metadata (report-types.ts; updated on each report, REQ-API-02)
+	Gid      string `bun:"gid"`      // group id
+	Alias    string `bun:"alias"`    // display alias
+	Type     string `bun:"type"`     // host type label (cloud/dedicated/home)
+	Location string `bun:"location"` // location label
+	Notify   bool   `bun:"notify"`   // alert on this host
+
 	Price           string `bun:"price"`                             // free-text monthly price
 	ExpireDate      string `bun:"expire_date"`                       // YYYY-MM-DD, "" = never
 	Bandwidth       string `bun:"bandwidth"`                         // free-text bandwidth tier

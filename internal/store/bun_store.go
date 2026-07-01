@@ -120,39 +120,100 @@ func (s *bunStore) currentSchemaVersion(ctx context.Context) (int, error) {
 
 // ── ingest (P2) ────────────────────────────────────────────────────────────
 
-// SaveReport persists a probe report.
-//
-// P2 STUB: returns ErrNotImplemented.
-//
-// TODO(P2): in s.db.RunInTx, upsert the serverRow then insert one metricRow per
-// sample (map -1 sentinels to nil/NULL, store disks[] as disks_json).
-func (s *bunStore) SaveReport(ctx context.Context, report *models.StatReport) error {
-	s.log.Warn("store.SaveReport not implemented (P2)")
-	return apperr.ErrNotImplemented
+// SaveReport records a probe upload for an ALREADY-REGISTERED server: it refreshes
+// the probe-pushed display metadata + sys_info/ip_info snapshots and inserts one
+// metrics_history row per sample, in a single transaction (REQ-API-06 / REQ-RES-04).
+// An unknown server id yields a 404 AppError — servers are admin-created
+// (CONVENTIONS §6 / 03-report-protocol §2.7.2), not auto-created here. Returns the
+// number of metric rows written.
+func (s *bunStore) SaveReport(ctx context.Context, req *models.ReportRequest) (int, error) {
+	samples := resolveSamples(req)
+	if len(samples) == 0 {
+		return 0, apperr.New(400, "report has no metrics")
+	}
+
+	// The newest-timestamp sample drives the server's "current" snapshot (REQ-RES-04 §3).
+	latest := samples[0]
+	for _, smp := range samples[1:] {
+		if smp.ts > latest.ts {
+			latest = smp
+		}
+	}
+
+	rows := make([]*metricRow, len(samples))
+	for i, smp := range samples {
+		rows[i] = statReportToMetricRow(req.ID, smp.ts, smp.data)
+	}
+	sr := latest.data
+
+	err := s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		exists, err := tx.NewSelect().Model((*serverRow)(nil)).Where("id = ?", req.ID).Exists(ctx)
+		if err != nil {
+			return fmt.Errorf("check server: %w", err)
+		}
+		if !exists {
+			return apperr.New(404, "server not found") // register via /api/admin/servers/add first
+		}
+
+		// Refresh probe-managed columns only — never the admin-managed name /
+		// server_group / created_at.
+		if _, err := tx.NewUpdate().Model((*serverRow)(nil)).
+			Set("gid = ?", sr.Gid).
+			Set("alias = ?", sr.Alias).
+			Set("type = ?", sr.Type).
+			Set("location = ?", sr.Location).
+			Set("notify = ?", sr.Notify).
+			Set("sort_order = ?", sr.Weight).
+			Set("sys_info_json = ?", marshalSnapshot(sr.SysInfo)).
+			Set("ip_info_json = ?", marshalSnapshot(sr.IpInfo)).
+			Set("updated_at = ?", nowISO()).
+			Where("id = ?", req.ID).
+			Exec(ctx); err != nil {
+			return fmt.Errorf("update server: %w", err)
+		}
+
+		if _, err := tx.NewInsert().Model(&rows).Exec(ctx); err != nil {
+			return fmt.Errorf("insert %d samples: %w", len(rows), err)
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return len(rows), nil
 }
 
-// ── public reads (P2) ──────────────────────────────────────────────────────
-
-func (s *bunStore) ListServers(ctx context.Context) ([]models.Server, error) {
-	s.log.Warn("store.ListServers not implemented (P2)")
-	return nil, apperr.ErrNotImplemented
-}
-
-func (s *bunStore) GetServer(ctx context.Context, id string) (*models.Server, error) {
-	s.log.Warn("store.GetServer not implemented (P2)")
-	return nil, apperr.ErrNotImplemented
-}
-
-func (s *bunStore) QueryHistory(ctx context.Context, id, rng string) ([]models.MetricsRow, error) {
-	s.log.Warn("store.QueryHistory not implemented (P2)")
-	return nil, apperr.ErrNotImplemented
-}
+// public reads (ListServers / GetServer / QueryHistory) live in read.go.
 
 // ── admin server CRUD (P6) ───────────────────────────────────────────────────
 
+// CreateServer inserts a new admin-registered server row (REQ-API-09). The caller
+// supplies the id (a fresh UUID); sensible defaults fill unset columns.
 func (s *bunStore) CreateServer(ctx context.Context, cfg *models.ServerConfig) error {
-	s.log.Warn("store.CreateServer not implemented (P6)")
-	return apperr.ErrNotImplemented
+	now := nowISO()
+	row := &serverRow{
+		ID:              cfg.ID,
+		Name:            orDefaultStr(cfg.Name, "New Server"),
+		ServerGroup:     orDefaultStr(cfg.ServerGroup, "Default"),
+		Price:           cfg.Price,
+		ExpireDate:      cfg.ExpireDate,
+		Bandwidth:       cfg.Bandwidth,
+		TrafficLimit:    cfg.TrafficLimit,
+		TrafficCalcType: orDefaultStr(cfg.TrafficCalcType, "total"),
+		ResetDay:        orDefaultInt(cfg.ResetDay, 1),
+		CollectInterval: cfg.CollectInterval,
+		ReportInterval:  orDefaultInt(cfg.ReportInterval, 60),
+		PingMode:        orDefaultStr(cfg.PingMode, "http"),
+		IsHidden:        orDefaultStr(cfg.IsHidden, "0"),
+		SortOrder:       cfg.SortOrder,
+		LastOnlineState: 1,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	if _, err := s.db.NewInsert().Model(row).Exec(ctx); err != nil {
+		return fmt.Errorf("create server: %w", err)
+	}
+	return nil
 }
 
 func (s *bunStore) UpdateServer(ctx context.Context, cfg *models.ServerConfig) error {
