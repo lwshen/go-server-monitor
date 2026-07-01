@@ -2,6 +2,7 @@ package ws
 
 import (
 	"sync"
+	"time"
 
 	"github.com/lwshen/go-server-monitor/internal/models"
 	"go.uber.org/zap"
@@ -50,6 +51,8 @@ func (h *Hub) Run() {
 			h.mu.Lock()
 			h.clients[c] = true
 			h.mu.Unlock()
+			// Greet the new subscriber (REQ-WS-04.1).
+			c.enqueue(models.WsMessage{Type: "hello", Ts: time.Now().Unix(), Subscribed: c.subscribeScope})
 		case c := <-h.unregister:
 			h.mu.Lock()
 			if _, ok := h.clients[c]; ok {
@@ -75,15 +78,36 @@ func (h *Hub) Broadcast(msg *models.BroadcastData) {
 	}
 }
 
-// fanout delivers a message to matching clients.
-//
-// P0 STUB: iterates clients but does not yet serialize/write — that is P4.
+// fanout delivers a message to every client subscribed to its scope, using a
+// non-blocking enqueue so a slow consumer is skipped rather than blocking the Hub
+// (REQ-WS-03). The wire frame is built once and shared (read-only).
 func (h *Hub) fanout(msg *models.BroadcastData) {
+	frame := toFrame(msg)
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	// TODO(P4): for each client, if shouldReceive(msg.Scope) do a non-blocking
-	// send to c.send; count drops for slow consumers.
-	_ = msg
+	for c := range h.clients {
+		if !c.shouldReceive(msg.Scope) {
+			continue
+		}
+		select {
+		case c.send <- frame:
+		default:
+			h.log.Warn("ws slow consumer, frame dropped", zap.String("scope", c.subscribeScope))
+		}
+	}
+}
+
+// toFrame converts an internal BroadcastData into the wire WsMessage: a single
+// sample is an "update", multiple samples a "batchUpdate" (REQ-RES-04).
+func toFrame(msg *models.BroadcastData) models.WsMessage {
+	if msg.Type == "batchUpdate" {
+		return models.WsMessage{
+			Type:    "batchUpdate",
+			Ts:      msg.Ts,
+			Updates: []models.BatchUpdate{{ServerID: msg.ServerID, Samples: msg.Samples}},
+		}
+	}
+	return models.WsMessage{Type: "update", ServerID: msg.ServerID, Ts: msg.Ts, Data: msg.Data}
 }
 
 // Register enqueues a client for registration (used by the /ws upgrade handler).

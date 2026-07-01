@@ -1,16 +1,36 @@
 package api
 
-import "github.com/gin-gonic/gin"
+import (
+	"context"
+
+	"github.com/coder/websocket"
+	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
+
+	"github.com/lwshen/go-server-monitor/internal/ws"
+)
 
 // WS upgrades to a WebSocket and subscribes the client (GET /ws?subscribe=all|<id>).
-//
-// P0 STUB: 501. The coder/websocket accept logic is kept out of the skeleton to
-// guarantee a clean compile; the Hub/Client structures it will drive already
-// exist in internal/ws.
-//
-// TODO(P4): validate the subscribe scope ("all" or a 36-char UUID), call
-// websocket.Accept(c.Writer, c.Request, ...), build a ws.Client, register it with
-// h.deps.Hub, and start its ReadPump/WritePump goroutines.
+// It accepts the connection, registers a ws.Client with the Hub (which greets it
+// with a "hello"), then runs the write pump in a goroutine and the read pump inline
+// (blocking until the socket closes). Broadcasts arrive via the Hub on ingest.
 func (h *Handlers) WS(c *gin.Context) {
-	notImplemented(c)
+	scope := c.DefaultQuery("subscribe", "all")
+
+	conn, err := websocket.Accept(c.Writer, c.Request, &websocket.AcceptOptions{
+		// TODO(P8): restrict origins to CORS_ORIGINS. Behind Caddy the browser
+		// origin differs from the upstream host, so verification is skipped here.
+		InsecureSkipVerify: true,
+	})
+	if err != nil {
+		h.deps.Log.Warn("ws accept failed", zap.Error(err))
+		return
+	}
+
+	client := ws.NewClient(h.deps.Hub, conn, scope)
+	h.deps.Hub.Register(client)
+
+	ctx := context.Background()
+	go client.WritePump(ctx)
+	client.ReadPump(ctx) // blocks until the connection closes
 }

@@ -1,5 +1,7 @@
 package models
 
+import "encoding/json"
+
 // WsMessage is a WebSocket frame sent server -> client.
 //
 // Message types (05-realtime-websocket.md): "hello", "update", "batchUpdate",
@@ -32,9 +34,10 @@ type BatchSample struct {
 type BroadcastData struct {
 	Type     string         // "update" or "batchUpdate"
 	Scope    string         // "all" or a serverId
-	Ts       int64          // Unix seconds
+	Ts       int64          // Unix seconds (latest sample)
 	ServerID string         // target server
-	Data     map[string]any // dynamic-only metrics
+	Data     map[string]any // dynamic-only metrics (single "update")
+	Samples  []BatchSample  // dynamic-only per-sample data (multi-sample "batchUpdate")
 }
 
 // BroadcastDeleteFields is the static-field exclusion set (REQ-RES-06): these
@@ -60,4 +63,24 @@ var BroadcastDeleteFields = map[string]bool{
 	"disks_json": true,
 	"uptime":     true, // optional
 	"latest_ts":  true, // replaced by frame-level ts
+}
+
+// DynamicData converts a StatReport into the dynamic-only metric map broadcast
+// over WebSocket (REQ-RES-06): it marshals the report and drops every field in
+// BroadcastDeleteFields, so the realtime frame carries only the changing metrics
+// (cpu/memory/network/ping/loss/…). Static fields are served via the /api/servers
+// and /api/server snapshots instead.
+func DynamicData(sr *StatReport) map[string]any {
+	b, err := json.Marshal(sr)
+	if err != nil {
+		return map[string]any{}
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		return map[string]any{}
+	}
+	for k := range BroadcastDeleteFields {
+		delete(m, k)
+	}
+	return m
 }
