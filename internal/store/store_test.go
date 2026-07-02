@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"testing"
 
 	"go.uber.org/zap"
@@ -56,8 +57,8 @@ func TestMigrateCreatesSchema(t *testing.T) {
 		`SELECT value FROM settings WHERE key = 'schema_version'`).Scan(&version); err != nil {
 		t.Fatalf("read schema_version: %v", err)
 	}
-	if version != "1" {
-		t.Fatalf("schema_version = %q, want 1 (latestSchemaVersion=%d)", version, latestSchemaVersion)
+	if want := strconv.Itoa(latestSchemaVersion); version != want {
+		t.Fatalf("schema_version = %q, want %q", version, want)
 	}
 }
 
@@ -165,8 +166,8 @@ func TestSettingsRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AllSettings: %v", err)
 	}
-	if all["site_title"] != "Monitor" || all[schemaVersionKey] != "1" {
-		t.Fatalf("AllSettings = %v, want site_title=Monitor schema_version=1", all)
+	if all["site_title"] != "Monitor" || all[schemaVersionKey] != strconv.Itoa(latestSchemaVersion) {
+		t.Fatalf("AllSettings = %v, want site_title=Monitor schema_version=%d", all, latestSchemaVersion)
 	}
 }
 

@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/uptrace/bun"
 )
@@ -9,7 +11,7 @@ import (
 // latestSchemaVersion is the highest migration version baked into the binary. It
 // equals the last entry in schemaMigrations and is what store.Migrate brings a
 // database up to (REQ-RES-09).
-const latestSchemaVersion = 1
+const latestSchemaVersion = 2
 
 // migration is one ordered, forward-only schema step. Migrations are
 // additive-only (create table / add column / create index / backfill) and
@@ -28,6 +30,7 @@ type migration struct {
 func schemaMigrations() []migration {
 	return []migration{
 		{version: 1, name: "init schema", up: migrate0001Init},
+		{version: 2, name: "server display columns", up: migrate0002ServerDisplayColumns},
 	}
 }
 
@@ -74,4 +77,36 @@ func migrate0001Init(ctx context.Context, db *bun.DB) error {
 		}
 	}
 	return nil
+}
+
+// migrate0002ServerDisplayColumns adds the probe-pushed display columns
+// (gid/alias/type/location/notify) to servers. They were added to the serverRow
+// model after v1 shipped, so databases created at v1 lack them; this ALTERs them
+// in. Idempotent: on databases that already have the columns (created by the
+// current v1 model) the "duplicate column" error is ignored. Identifiers are
+// quoted and the types are portable across SQLite/libSQL/PostgreSQL.
+func migrate0002ServerDisplayColumns(ctx context.Context, db *bun.DB) error {
+	columns := []struct{ name, ddl string }{
+		{"gid", `"gid" TEXT DEFAULT ''`},
+		{"alias", `"alias" TEXT DEFAULT ''`},
+		{"type", `"type" TEXT DEFAULT ''`},
+		{"location", `"location" TEXT DEFAULT ''`},
+		{"notify", `"notify" BOOLEAN DEFAULT FALSE`},
+	}
+	for _, c := range columns {
+		if _, err := db.ExecContext(ctx, fmt.Sprintf(`ALTER TABLE "servers" ADD COLUMN %s`, c.ddl)); err != nil {
+			if isDuplicateColumnErr(err) {
+				continue // column already present (fresh DB from the current v1 model)
+			}
+			return fmt.Errorf("add servers.%s: %w", c.name, err)
+		}
+	}
+	return nil
+}
+
+// isDuplicateColumnErr reports whether err is an "add a column that already
+// exists" error (SQLite: "duplicate column name"; PostgreSQL: "already exists").
+func isDuplicateColumnErr(err error) bool {
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "duplicate column") || strings.Contains(s, "already exists")
 }
