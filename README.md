@@ -31,16 +31,19 @@ default), and broadcasts live updates to the dashboard. It runs comfortably on a
 ## Quick start (development)
 
 ```bash
-# 1. Configure secrets
-cp .env.example .env        # then edit: set API_SECRET and ADMIN_PASSWORD
+# 1. One-time setup: creates .env, fetches Go + frontend deps
+make setup                  # then edit .env: set API_SECRET and ADMIN_PASSWORD
 
 # 2. Run the backend (defaults to :8080, db at ./data/metrics.db)
-go run ./cmd/server
-#   or: make run
+make run                    # or: go run ./cmd/server
 
 # 3. Run the frontend dev server (proxies /api and /ws to :8080)
-cd web && npm install && npm run dev   # http://localhost:5173
+cd web && npm run dev       # http://localhost:5173
 ```
+
+`make setup` copies `.env.example` → `.env` (only if missing), runs `go mod
+download`, and installs the frontend deps (`npm ci`). To do it by hand:
+`cp .env.example .env && go mod download && (cd web && npm install)`.
 
 Health check (frozen public endpoint): `curl http://localhost:8080/health`
 

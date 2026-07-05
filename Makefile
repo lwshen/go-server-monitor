@@ -5,6 +5,7 @@
 #            requirements/01-architecture.md (REQ-ARCH-06 Makefile in layout).
 #
 # Common targets:
+#   make setup        one-time project setup: .env + Go & frontend deps
 #   make build        build the server binary into bin/server (host)
 #   make build-probe  build the probe binary into bin/probe (host)
 #   make build-web    build the Vue SPA into web/dist (auto npm ci if needed)
@@ -33,12 +34,19 @@ GOBUILD_EMBED := CGO_ENABLED=0 go build -tags embed -trimpath -ldflags "$(LDFLAG
 # Cross-compile matrix for the release target.
 PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64
 
-.PHONY: all build build-probe build-web build-embed build-all release run tidy test vet fmt \
+.PHONY: all setup build build-probe build-web build-embed build-all release run tidy test vet fmt \
         install-web docker-build docker-up docker-down clean
 
 # Bare `make` = quick host server build (fast inner loop).
 # Use `make build-all` for the whole project (web + both binaries).
 all: build
+
+## setup: one-time project setup — create .env, fetch Go & frontend deps
+setup:
+	@[ -f .env ] || { cp .env.example .env && echo ">> created .env — set API_SECRET and ADMIN_PASSWORD before running"; }
+	go mod download
+	$(MAKE) install-web
+	@echo ">> setup done. Edit .env, then: 'make run' (backend) + (cd web && npm run dev) (frontend)."
 
 ## build: compile the server binary into bin/server (host)
 build:
