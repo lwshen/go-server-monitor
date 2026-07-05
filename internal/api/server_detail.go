@@ -16,7 +16,8 @@ func (h *Handlers) ServerDetail(c *gin.Context) {
 		return
 	}
 
-	srv, err := h.deps.Store.GetServer(c.Request.Context(), id)
+	ctx := c.Request.Context()
+	srv, err := h.deps.Store.GetServer(ctx, id)
 	if err != nil {
 		ErrorFrom(c, err)
 		return
@@ -26,6 +27,6 @@ func (h *Handlers) ServerDetail(c *gin.Context) {
 		return
 	}
 
-	srv.Online = h.isOnline(srv.LastUpdated, srv.ReportInterval, time.Now().Unix())
+	srv.Online = isOnline(srv.LastUpdated, srv.ReportInterval, h.offlineFactor(ctx), time.Now().Unix())
 	JSON(c, http.StatusOK, srv)
 }

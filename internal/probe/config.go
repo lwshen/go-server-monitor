@@ -36,9 +36,8 @@ func DefaultTargets() []ProbeTarget {
 	}
 }
 
-// Load reads probe configuration from the environment with defaults.
-//
-// TODO(P3): also support a config.yaml (server.url/secret, probe.* , targets[]).
+// Load reads probe configuration from the environment with defaults (a .env file
+// is auto-loaded via godotenv in main). See probe.env.example for the keys.
 func Load() *Config {
 	return &Config{
 		ServerURL:       env("SERVER_URL", ""),

@@ -5,6 +5,11 @@ const (
 	SettingAdminUsername     = "admin_username"
 	SettingAdminPasswordHash = "admin_password_hash"
 	SettingSchemaVersion     = "schema_version"
+
+	// Operational settings: seeded from env on first start (service.BootstrapSettings),
+	// then authoritative in the DB and editable via the admin API.
+	SettingRetentionDays = "retention_days" // history retention window (days)
+	SettingOfflineFactor = "offline_factor" // offline threshold = factor × report_interval
 )
 
 // SecretSettingKeys are never returned in plaintext by GET /api/admin/settings;
