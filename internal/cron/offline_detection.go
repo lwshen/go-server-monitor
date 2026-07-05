@@ -7,7 +7,9 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/lwshen/go-server-monitor/internal/models"
 	"github.com/lwshen/go-server-monitor/internal/service"
+	"github.com/lwshen/go-server-monitor/internal/store"
 )
 
 // DetectOfflineServers flips servers between online/offline and alerts only on
@@ -24,7 +26,7 @@ func DetectOfflineServers(deps Deps) {
 		return
 	}
 
-	factor := deps.Cfg.OfflineFactor
+	factor := store.IntSetting(ctx, deps.Store, models.SettingOfflineFactor, deps.Cfg.OfflineFactor)
 	if factor <= 0 {
 		factor = 5
 	}

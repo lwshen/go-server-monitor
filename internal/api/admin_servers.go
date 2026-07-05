@@ -49,14 +49,16 @@ func (h *Handlers) AdminServersAdd(c *gin.Context) {
 
 // AdminServers lists every server (including hidden), with latest metrics + online.
 func (h *Handlers) AdminServers(c *gin.Context) {
-	servers, err := h.deps.Store.ListServers(c.Request.Context())
+	ctx := c.Request.Context()
+	servers, err := h.deps.Store.ListServers(ctx)
 	if err != nil {
 		ErrorFrom(c, err)
 		return
 	}
 	now := time.Now().Unix()
+	factor := h.offlineFactor(ctx)
 	for i := range servers {
-		servers[i].Online = h.isOnline(servers[i].LastUpdated, servers[i].ReportInterval, now)
+		servers[i].Online = isOnline(servers[i].LastUpdated, servers[i].ReportInterval, factor, now)
 	}
 	JSON(c, http.StatusOK, gin.H{"servers": servers})
 }

@@ -71,5 +71,6 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -fsS http://localhost:8080/health || exit 1
 
-# TODO(P0/P8): the server reads config from env (.env) and/or config.yaml.
+# The server reads all deploy config from environment variables (compose passes
+# them in / an .env is auto-loaded). Runtime settings live in the DB settings table.
 CMD ["/app/server"]

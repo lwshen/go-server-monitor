@@ -5,15 +5,19 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+
+	"github.com/lwshen/go-server-monitor/internal/models"
+	"github.com/lwshen/go-server-monitor/internal/store"
 )
 
 // CleanupOldMetrics deletes metrics_history rows older than the retention window
-// (REQ-CRON-06 / REQ-DB-06). Runs nightly.
+// (REQ-CRON-06 / REQ-DB-06). Runs nightly. The retention window is read from the
+// settings table (admin-editable), falling back to the env-seeded config default.
 func CleanupOldMetrics(deps Deps) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	retention := deps.Cfg.ReportRetentionDays
+	retention := store.IntSetting(ctx, deps.Store, models.SettingRetentionDays, deps.Cfg.ReportRetentionDays)
 	if retention <= 0 {
 		retention = 180
 	}

@@ -1,8 +1,14 @@
-// Package config loads runtime configuration for the server.
+// Package config loads the server's DEPLOY-time configuration from environment
+// variables (a .env file is auto-loaded via godotenv in main), falling back to
+// built-in defaults. There is intentionally no config file — env is the single
+// source for deploy config (works identically for .env, docker-compose
+// `environment:`, and systemd `EnvironmentFile=`).
 //
-// Precedence (REQ-PLAN-03): command line > environment variables > config.yaml >
-// built-in defaults. For the P0 skeleton we read only environment variables and
-// defaults; YAML parsing is a documented TODO for a later phase.
+// Runtime / operational settings (site title, theme, alert channels, retention,
+// offline factor, …) instead live in the DB settings table and are edited via the
+// admin API; the secret- and operational-seed values below are written into that
+// table on first start (see service.BootstrapAdmin / BootstrapSettings), after
+// which the DB is authoritative.
 package config
 
 import (
@@ -38,8 +44,6 @@ type Config struct {
 }
 
 // Load reads configuration from the environment, applying built-in defaults.
-//
-// TODO(P0): layer in config.yaml parsing beneath the env vars (env > yaml > defaults).
 func Load() (*Config, error) {
 	cfg := &Config{
 		APISecret:           env("API_SECRET", ""),

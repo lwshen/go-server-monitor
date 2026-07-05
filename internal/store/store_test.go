@@ -51,13 +51,13 @@ func TestMigrateCreatesSchema(t *testing.T) {
 	assertMasterNames(t, raw, "table", []string{"metrics_history", "servers", "settings"})
 	assertMasterNames(t, raw, "index", []string{"idx_history_server_time", "idx_history_timestamp", "idx_servers_group"})
 
-	var version string
-	if err := raw.QueryRowContext(ctx,
-		`SELECT value FROM settings WHERE key = 'schema_version'`).Scan(&version); err != nil {
-		t.Fatalf("read schema_version: %v", err)
+	// bun/migrate records applied migrations in bun_migrations.
+	var applied int
+	if err := raw.QueryRowContext(ctx, `SELECT COUNT(*) FROM bun_migrations`).Scan(&applied); err != nil {
+		t.Fatalf("read bun_migrations: %v", err)
 	}
-	if version != "1" {
-		t.Fatalf("schema_version = %q, want 1 (latestSchemaVersion=%d)", version, latestSchemaVersion)
+	if applied < 2 {
+		t.Fatalf("bun_migrations rows = %d, want >= 2 (0001, 0002)", applied)
 	}
 }
 
@@ -113,34 +113,30 @@ func TestWALEnabled(t *testing.T) {
 	}
 }
 
-// TestMigrateForwardFromOlderVersion verifies pending migrations are (re)applied
-// when the stored version is behind the binary's latest — the REQ-RES-09 upgrade
-// path — and that doing so is harmless (idempotent DDL).
-func TestMigrateForwardFromOlderVersion(t *testing.T) {
+// TestMigrateIdempotent verifies re-running Migrate applies nothing new.
+func TestMigrateIdempotent(t *testing.T) {
 	ctx := context.Background()
-	st, _ := openTemp(t)
+	st, dbFile := openTemp(t)
 	if err := st.Migrate(ctx); err != nil {
 		t.Fatalf("initial Migrate: %v", err)
 	}
-
-	bs := st.(*bunStore)
-	// Simulate a database written by an older binary.
-	if err := bs.SetSetting(ctx, schemaVersionKey, "0"); err != nil {
-		t.Fatalf("SetSetting: %v", err)
-	}
-	if v, _ := bs.currentSchemaVersion(ctx); v != 0 {
-		t.Fatalf("precondition: currentSchemaVersion = %d, want 0", v)
-	}
-
 	if err := st.Migrate(ctx); err != nil {
-		t.Fatalf("forward Migrate: %v", err)
+		t.Fatalf("second Migrate: %v", err)
 	}
-	if v, err := bs.currentSchemaVersion(ctx); err != nil || v != latestSchemaVersion {
-		t.Fatalf("after forward Migrate: version = %d, err = %v; want %d", v, err, latestSchemaVersion)
+
+	raw, err := sql.Open("sqlite", "file:"+dbFile)
+	if err != nil {
+		t.Fatalf("raw open: %v", err)
+	}
+	defer raw.Close()
+	var applied int
+	raw.QueryRowContext(ctx, `SELECT COUNT(*) FROM bun_migrations`).Scan(&applied)
+	if applied != 2 {
+		t.Fatalf("bun_migrations rows = %d, want exactly 2 after two Migrate runs", applied)
 	}
 }
 
-// TestSettingsRoundtrip covers the settings helpers Migrate relies on.
+// TestSettingsRoundtrip covers the settings helpers.
 func TestSettingsRoundtrip(t *testing.T) {
 	ctx := context.Background()
 	st, _ := openTemp(t)
@@ -165,8 +161,8 @@ func TestSettingsRoundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AllSettings: %v", err)
 	}
-	if all["site_title"] != "Monitor" || all[schemaVersionKey] != "1" {
-		t.Fatalf("AllSettings = %v, want site_title=Monitor schema_version=1", all)
+	if all["site_title"] != "Monitor" {
+		t.Fatalf("AllSettings = %v, want site_title=Monitor", all)
 	}
 }
 

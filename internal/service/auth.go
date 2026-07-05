@@ -5,6 +5,7 @@ package service
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -89,5 +90,28 @@ func BootstrapAdmin(ctx context.Context, st store.Store, username, password stri
 		return err
 	}
 	log.Info("管理员账号已初始化", zap.String("username", username))
+	return nil
+}
+
+// BootstrapSettings seeds operational settings from env/config values on first
+// start (only when absent), after which the DB settings table is authoritative
+// and they are editable via the admin API. Idempotent.
+func BootstrapSettings(ctx context.Context, st store.Store, retentionDays, offlineFactor int, log *zap.Logger) error {
+	seed := func(key string, val int) error {
+		cur, err := st.GetSetting(ctx, key)
+		if err != nil {
+			return err
+		}
+		if cur != "" {
+			return nil // already set — DB is authoritative
+		}
+		return st.SetSetting(ctx, key, strconv.Itoa(val))
+	}
+	if err := seed(models.SettingRetentionDays, retentionDays); err != nil {
+		return err
+	}
+	if err := seed(models.SettingOfflineFactor, offlineFactor); err != nil {
+		return err
+	}
 	return nil
 }
